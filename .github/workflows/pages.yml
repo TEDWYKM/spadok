@@ -1,0 +1,59 @@
+name: PWA
+
+# Публікує вебверсію на GitHub Pages. Це найшвидший шлях на телефон:
+# відкрити посилання в Chrome на Android і додати на головний екран —
+# застосунок отримає іконку, повний екран, офлайн і геолокацію.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'www/**'
+      - 'scripts/vendor.mjs'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Одночасно тримаємо один деплой, але не рвемо той, що вже пішов.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Покласти Leaflet у www/vendor
+        run: node scripts/vendor.mjs
+
+      - name: Перевірити, що нічого не забуто
+        run: node scripts/check.mjs
+
+      # enablement: true вмикає GitHub Pages сам, без походу в Settings.
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: www
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
