@@ -1,0 +1,700 @@
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  --ink:#15242E;
+  --ink-2:#3A5060;
+  --ink-3:#6D8091;
+  --sheet:#F2F1E9;
+  --stone:#DFDFD3;
+  --verd:#2E7D6C;
+  --verd-dk:#1C5849;
+  --copper:#A8542B;
+  --gold:#B08417;
+  --line:rgba(21,36,46,.14);
+  --line-2:rgba(21,36,46,.28);
+  --shadow:0 1px 0 rgba(21,36,46,.08), 0 12px 32px -18px rgba(21,36,46,.5);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:transparent;font-family:"IBM Plex Sans",system-ui,sans-serif;color:var(--ink)}
+button{font:inherit;color:inherit;cursor:pointer;border:none;background:none}
+h1,h2,h3{font-family:"Unbounded","Unbounded Fallback",system-ui,sans-serif;font-weight:600;letter-spacing:-.02em;margin:0}
+
+/* ---------- каркас ---------- */
+.frame{max-width:430px;margin:0 auto;background:var(--sheet);
+  border:1px solid var(--line-2);border-radius:20px;overflow:hidden;box-shadow:var(--shadow);
+  display:flex;flex-direction:column;min-height:760px;position:relative}
+.bar{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line);
+  background:var(--sheet);position:sticky;top:0;z-index:20}
+.bar h1{font-size:15px;letter-spacing:.01em}
+.bar .sub{font-family:"IBM Plex Mono",monospace;font-size:10px;color:var(--ink-3);letter-spacing:.14em;text-transform:uppercase}
+.back{width:30px;height:30px;border:1px solid var(--line-2);border-radius:8px;display:grid;place-items:center;flex:none}
+.body{flex:1;overflow:auto;padding:16px 16px 96px}
+.nav{position:sticky;bottom:0;display:grid;grid-template-columns:repeat(4,1fr);
+  border-top:1px solid var(--line);background:var(--sheet);z-index:20}
+.nav button{padding:11px 4px 13px;display:flex;flex-direction:column;align-items:center;gap:5px;
+  font-family:"IBM Plex Mono",monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.nav button[aria-current="true"]{color:var(--verd-dk)}
+.nav button[aria-current="true"] svg{stroke:var(--verd-dk)}
+.nav svg{stroke:var(--ink-3);fill:none;stroke-width:1.5}
+
+/* ---------- типографіка ---------- */
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--ink-3)}
+.mono{font-family:"IBM Plex Mono",monospace}
+.lede{font-size:13.5px;line-height:1.55;color:var(--ink-2)}
+.rule{height:1px;background:var(--line);margin:18px 0}
+
+/* ---------- карта ---------- */
+.map{position:relative;border:1px solid var(--line-2);border-radius:14px;overflow:hidden;background:var(--stone)}
+.map svg{display:block;width:100%;height:auto}
+.mapnote{position:absolute;left:8px;bottom:6px;font-family:"IBM Plex Mono",monospace;
+  font-size:8.5px;letter-spacing:.1em;color:var(--ink-3);text-transform:uppercase}
+.pt{cursor:pointer}
+.pt .hit{fill:transparent}
+
+/* ---------- фільтри ---------- */
+.chips{display:flex;gap:6px;overflow-x:auto;padding:2px 0 6px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{white-space:nowrap;padding:7px 12px;border:1px solid var(--line-2);border-radius:999px;
+  font-size:12px;background:transparent}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--sheet);border-color:var(--ink)}
+
+/* ---------- картки ---------- */
+.card{border:1px solid var(--line-2);border-radius:14px;background:#FAF9F3;padding:14px;margin-bottom:10px}
+.card h3{font-size:14.5px;line-height:1.3}
+.row{display:flex;align-items:center;gap:8px}
+.between{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.meta{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3)}
+.tag{font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;
+  padding:3px 7px;border-radius:5px;border:1px solid var(--line-2);color:var(--ink-2)}
+.tag.ok{color:var(--verd-dk);border-color:rgba(46,125,108,.45);background:rgba(46,125,108,.08)}
+.tag.warn{color:var(--copper);border-color:rgba(168,84,43,.4);background:rgba(168,84,43,.08)}
+.tag.stop{color:#8E2F2F;border-color:rgba(142,47,47,.4);background:rgba(142,47,47,.08)}
+
+/* ---------- кнопки ---------- */
+.btn{display:block;width:100%;padding:15px;border-radius:12px;background:var(--ink);color:var(--sheet);
+  font-family:"Unbounded",sans-serif;font-size:13px;font-weight:600;letter-spacing:-.01em;text-align:center}
+.btn.go{background:var(--verd-dk)}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line-2)}
+.btn:disabled{opacity:.4}
+.btn-sm{padding:9px 14px;border:1px solid var(--line-2);border-radius:9px;font-size:12px}
+
+/* ---------- зірки ---------- */
+.stars{display:flex;gap:5px}
+.star{width:30px;height:30px;display:grid;place-items:center}
+.star svg{width:25px;height:25px}
+.star svg path{fill:none;stroke:var(--ink-3);stroke-width:1.4;stroke-linejoin:round}
+.star.on svg path{fill:var(--gold);stroke:var(--gold)}
+.stars.sm .star{width:15px;height:15px}
+.stars.sm .star svg{width:13px;height:13px}
+
+/* ---------- штамп відвідин ---------- */
+.stamp{border:1.5px solid var(--verd-dk);color:var(--verd-dk);border-radius:8px;padding:6px 9px;
+  font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+  transform:rotate(-2.5deg);display:inline-block;opacity:.85}
+
+/* ---------- медіа-блок пам'ятки ---------- */
+.plate{border:1px solid var(--line-2);border-radius:12px;overflow:hidden;background:var(--stone)}
+.plate svg{display:block;width:100%;height:auto}
+.switch{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--line-2)}
+.switch button{padding:9px;font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink-3);background:#EDEBE1}
+.switch button[aria-pressed="true"]{background:var(--ink);color:var(--sheet)}
+
+/* ---------- інше ---------- */
+.locked{border:1px dashed var(--line-2);border-radius:12px;padding:13px;display:flex;gap:11px;align-items:center;
+  background:rgba(21,36,46,.03)}
+.alert{border:1px solid rgba(168,84,43,.4);background:rgba(168,84,43,.07);border-radius:11px;
+  padding:11px 13px;font-size:12px;line-height:1.5;color:#7C3E1F;margin-bottom:12px}
+.field{width:100%;border:1px solid var(--line-2);border-radius:10px;padding:11px;font:inherit;font-size:13px;
+  background:#FAF9F3;resize:vertical;color:var(--ink)}
+.field:focus{outline:2px solid var(--verd);outline-offset:1px}
+.badge{border:1px solid var(--line-2);border-radius:12px;padding:12px;text-align:center;background:#FAF9F3}
+.badge.got{border-color:var(--gold);background:rgba(176,132,23,.09)}
+.badge .g{font-size:22px;line-height:1;margin-bottom:6px;filter:grayscale(1);opacity:.35}
+.badge.got .g{filter:none;opacity:1}
+.badge .n{font-size:10.5px;line-height:1.3;font-weight:600}
+.badge .d{font-size:9.5px;color:var(--ink-3);margin-top:3px;line-height:1.3}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.stat{border:1px solid var(--line-2);border-radius:11px;padding:11px;text-align:center;background:#FAF9F3}
+.stat b{font-family:"Unbounded",sans-serif;font-size:19px;display:block;line-height:1.1}
+.stat span{font-family:"IBM Plex Mono",monospace;font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.stops{list-style:none;padding:0;margin:0}
+.stops li{display:flex;gap:11px;padding:9px 0}
+.dotcol{display:flex;flex-direction:column;align-items:center;flex:none;width:16px}
+.dot{width:9px;height:9px;border-radius:50%;border:1.5px solid var(--ink);background:var(--sheet);flex:none;margin-top:4px}
+.dot.done{background:var(--verd-dk);border-color:var(--verd-dk)}
+.dot.now{background:var(--copper);border-color:var(--copper);box-shadow:0 0 0 4px rgba(168,84,43,.18)}
+.stem{width:1.5px;flex:1;background:var(--line-2);margin:3px 0}
+:focus-visible{outline:2px solid var(--verd);outline-offset:2px}
+@media (prefers-reduced-motion:no-preference){
+  .fade{animation:f .28s ease both}
+  @keyframes f{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+}
+</style>
+
+<div class="frame">
+  <div class="bar" id="bar"></div>
+  <div class="body" id="body"></div>
+  <nav class="nav" id="nav"></nav>
+</div>
+
+<script>
+/* ═══════════ ДАНІ (демо-набір, Львівщина) ═══════════
+   Координати приблизні. У продакшені — Держреєстр нерухомих
+   пам'яток + відкриті дані data.gov.ua + модерований краудсорсинг. */
+
+const THEMES = {
+  castle:  'Замки і фортеці',
+  ruin:    'Руїни та забуті пам\u2019ятки',
+  sacral:  'Сакральна спадщина',
+  baroque: 'Ренесанс і бароко',
+  rus:     'Давньоруська доба',
+  unesco:  'Спадщина ЮНЕСКО'
+};
+
+const POINTS = [
+  {id:'olesko', n:'Олеський замок', lat:49.9686, lon:24.8963, t:['castle','baroque'], pop:95,
+   st:'ok', kind:'castle', rate:4.6, cnt:1240, upd:'12.08.2026',
+   s:'Один із найдавніших замків Галичини на високому пагорбі. Нині — музей-заповідник.',
+   f:'Замок стоїть на пагорбі серед рівнини, що робило його ключовою оборонною точкою регіону. Будівля кілька разів перебудовувалася, тому в її вигляді змішані оборонні й палацові риси. Сьогодні тут працює музейна експозиція, а довкола збереглися залишки парку.',
+   near:{shop:2, stay:3, food:4}, note:'Перевірте графік роботи музею — він змінюється посезонно.'},
+
+  {id:'pidhirtsi', n:'Підгорецький замок', lat:49.9414, lon:24.9890, t:['castle','baroque'], pop:88,
+   st:'warn', kind:'castle', rate:4.4, cnt:870, upd:'12.08.2026',
+   s:'Палац-замок з бастіонними укріпленнями. Всередині — обмежений доступ.',
+   f:'Поєднання житлового палацу з бастіонною системою укріплень — рідкісний для регіону тип. Комплексну реставрацію планували ще у 2022 році, але повномасштабна війна її зупинила, тому частина приміщень зачинена. Ззовні комплекс і тераси доступні для огляду.',
+   near:{shop:1, stay:1, food:2}, note:'Внутрішні приміщення можуть бути зачинені. Огляд переважно ззовні.'},
+
+  {id:'zolochiv', n:'Золочівський замок', lat:49.8060, lon:24.9004, t:['castle','baroque'], pop:90,
+   st:'ok', kind:'castle', rate:4.5, cnt:1010, upd:'12.08.2026',
+   s:'Бастіонний замок з палацовим комплексом у межах міста Золочів.',
+   f:'Замок збудований за голландською бастіонною системою — чотири земляні бастіони, обкладені каменем. У межах двору стоять два палаци, один із них має незвичну для регіону архітектуру. Зараз комплекс входить до складу Львівської галереї мистецтв.',
+   near:{shop:6, stay:4, food:8}, note:'Найзручніша точка для обіду й дозаправки на маршруті.'},
+
+  {id:'svirzh', n:'Свірзький замок', lat:49.6236, lon:24.4194, t:['castle'], pop:70,
+   st:'ok', kind:'castle', rate:4.3, cnt:410, upd:'12.08.2026',
+   s:'Замок над ставом, знайомий за зйомками українського кіно.',
+   f:'Комплекс закладено наприкінці XV століття власниками містечка Свірж. Розташування над водою й терасами робить його одним із найфотогенічніших у регіоні, тому замок неодноразово ставав знімальним майданчиком. Відвідування — переважно у форматі екскурсій.',
+   near:{shop:1, stay:1, food:1}, note:'Малий населений пункт: заправтеся й купіть воду заздалегідь.'},
+
+  {id:'zhovkva', n:'Жовківський замок', lat:50.0553, lon:23.9725, t:['castle','baroque'], pop:72,
+   st:'ok', kind:'castle', rate:4.1, cnt:520, upd:'12.08.2026',
+   s:'Замок у центрі ренесансного міста, спланованого як єдиний ансамбль.',
+   f:'Цінність тут не лише в самому замку, а в тому, що місто будувалося як цілісний ренесансний ансамбль із площею, укріпленнями й храмами. Частина замку відреставрована, частина — у роботі. Прогулянку варто планувати по всьому центру, а не лише по замковому подвір\u2019ю.',
+   near:{shop:9, stay:5, food:11}, note:'Закладіть час на центр міста, а не тільки на замок.'},
+
+  {id:'pomoriany', n:'Поморянський замок', lat:49.6053, lon:24.9086, t:['castle','ruin'], pop:40,
+   st:'warn', kind:'ruin', rate:3.6, cnt:120, upd:'12.08.2026',
+   s:'Занедбаний замок, від якого лишилася частина корпусів.',
+   f:'Один із тих об\u2019єктів, які майже не потрапляють у популярні добірки. Збереглася частина мурів і корпусів, стан аварійний. Саме такі точки найбільше потребують уваги — і найшвидше зникають без неї.',
+   near:{shop:2, stay:0, food:1}, note:'Аварійний стан. Не заходьте всередину конструкцій.'},
+
+  {id:'vysokyi', n:'Високий Замок', lat:49.8497, lon:24.0397, t:['castle','ruin'], pop:85,
+   st:'ok', kind:'ruin', rate:4.4, cnt:2100, upd:'12.08.2026',
+   s:'Пагорб над Львовом із залишками мурів і панорамою міста.',
+   f:'Від самого замку майже нічого не лишилося — головна цінність точки сьогодні в оглядовому майданчику й у розумінні, як місто виглядало з висоти оборонної споруди. Підйом пішки займає близько 20 хвилин від центру.',
+   near:{shop:4, stay:12, food:15}, note:'Підйом крутий. Взуття має значення.'},
+
+  {id:'rynok', n:'Площа Ринок, Львів', lat:49.8419, lon:24.0315, t:['unesco','baroque'], pop:99,
+   st:'ok', kind:'city', rate:4.8, cnt:5400, upd:'12.08.2026',
+   s:'Ядро історичного центру Львова зі списку всесвітньої спадщини.',
+   f:'Площа зберегла середньовічне планування з ратушею в центрі й кам\u2019яницями по периметру. Кожна кам\u2019яниця має власну історію власників і перебудов, тому маршрут тут будується не «по площі», а по конкретних будинках.',
+   near:{shop:20, stay:30, food:40}, note:'Стартова точка більшості маршрутів по області.'},
+
+  {id:'tustan', n:'Тустань, Урич', lat:49.1663, lon:23.4333, t:['rus','ruin'], pop:75,
+   st:'ok', kind:'rock', rate:4.7, cnt:690, upd:'12.08.2026',
+   s:'Наскельна фортеця: дерев\u2019яні конструкції кріпилися просто до скель.',
+   f:'Унікальний тип оборонної споруди — дерев\u2019яні стіни спиралися безпосередньо на скельні масиви, від них лишилися вирубані пази й отвори. Саме тому реконструкція тут особливо цінна: без неї побачити фортецю майже неможливо.',
+   near:{shop:1, stay:3, food:2}, note:'Ґрунтова дорога на під\u2019їзді. Після дощу — обережно.'},
+
+  {id:'krekhiv', n:'Крехівський монастир', lat:50.0350, lon:23.7800, t:['sacral'], pop:55,
+   st:'ok', kind:'sacral', rate:4.5, cnt:380, upd:'12.08.2026',
+   s:'Монастирський комплекс у лісі, з оборонними рисами в забудові.',
+   f:'Монастир будувався як укріплений комплекс — з мурами й вежами, бо стояв на небезпечному напрямку. Довкола ліс і джерела, тому точка добре працює як тиха зупинка після насиченого замкового дня.',
+   near:{shop:1, stay:2, food:2}, note:'Діючий монастир: одяг і поведінка відповідно.'},
+
+  {id:'univ', n:'Унівська лавра', lat:49.6733, lon:24.4550, t:['sacral'], pop:45,
+   st:'ok', kind:'sacral', rate:4.4, cnt:210, upd:'12.08.2026',
+   s:'Укріплений монастир з баштами, поруч зі Свіржем.',
+   f:'Комплекс має виражені оборонні елементи — мури й наріжні вежі, що ставить його ближче до фортифікацій, ніж до звичайного монастиря. Добре поєднується у маршруті зі Свірзьким замком.',
+   near:{shop:1, stay:1, food:1}, note:'Діюча обитель, фотографування — за погодженням.'},
+
+  {id:'stareselo', n:'Замок у Старому Селі', lat:49.7325, lon:24.1136, t:['castle','ruin'], pop:35,
+   st:'warn', kind:'ruin', rate:3.9, cnt:150, upd:'12.08.2026',
+   s:'Один із найбільших за площею замків регіону — нині руїна.',
+   f:'Периметр мурів вражає розмахом, але стан конструкцій аварійний, реставрація не завершена. Точка добре показує масштаб втрат спадщини — і те, що масштаб замку не гарантував йому збереження.',
+   near:{shop:2, stay:0, food:1}, note:'Аварійні мури. Тримайтеся зовнішнього обходу.'}
+];
+
+const ROUTES = [
+  {id:'horseshoe', n:'Золота підкова', why:'Найпопулярніший маршрут області',
+   stops:['olesko','pidhirtsi','zolochiv'], from:'rynok'},
+  {id:'horseshoe-plus', n:'Розширена підкова', why:'Ті самі три замки плюс два менш людні',
+   stops:['zhovkva','olesko','pidhirtsi','zolochiv','svirzh'], from:'rynok'},
+  {id:'ruins', n:'Забуті мури', why:'Точки, які майже не потрапляють у добірки',
+   stops:['stareselo','svirzh','pomoriany'], from:'rynok'},
+  {id:'lviv', n:'Львів за пів дня', why:'Пішки, без авто',
+   stops:['rynok','vysokyi'], from:'rynok'},
+  {id:'sacral', n:'Укріплені обителі', why:'Монастирі, збудовані як фортеці',
+   stops:['krekhiv','univ'], from:'rynok'},
+  {id:'rock', n:'Скеля замість мурів', why:'Одна точка, заради якої варто їхати',
+   stops:['tustan'], from:'rynok'}
+];
+
+const BADGES = [
+  {id:'first',   g:'\u25C6', n:'Перший камінь',    d:'Перша відвідана точка'},
+  {id:'horseshoe', g:'\u2726', n:'Золота підкова', d:'Олесько + Підгірці + Золочів'},
+  {id:'five',    g:'\u25B2', n:'П\u2019ять твердинь', d:'5 різних точок'},
+  {id:'ruin',    g:'\u25AB', n:'Хранитель руїн',  d:'3 занедбані пам\u2019ятки'},
+  {id:'critic',  g:'\u2605', n:'Голос мандрівника', d:'5 залишених оцінок'},
+  {id:'sacral',  g:'\u271D', n:'Тиха дорога',     d:'Обидві укріплені обителі'},
+  {id:'route1',  g:'\u25CF', n:'Маршрут пройдено', d:'Завершити будь-який маршрут'},
+  {id:'rock',    g:'\u25C7', n:'Камінь і дерево', d:'Дійти до Тустані'}
+];
+
+/* ═══════════ СТАН ═══════════ */
+const KEY='spadok:lviv:v1';
+let S = {visited:{}, ratings:{}, done:[], badges:[]};
+let V = {screen:'map', theme:'all', sort:'pop', route:null, idx:0, t0:0, sel:null, media:'photo', draftStars:0};
+
+async function load(){ try{const r=await window.storage.get(KEY); if(r&&r.value) S=Object.assign(S,JSON.parse(r.value));}catch(e){} }
+async function save(){ try{ await window.storage.set(KEY, JSON.stringify(S)); }catch(e){} }
+
+/* ═══════════ УТИЛІТИ ═══════════ */
+const P = id => POINTS.find(p=>p.id===id);
+function dist(a,b){const R=6371,r=x=>x*Math.PI/180;
+  const dLat=r(b.lat-a.lat),dLon=r(b.lon-a.lon);
+  const h=Math.sin(dLat/2)**2+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));}
+function routeStats(r){
+  const chain=[P(r.from),...r.stops.map(P)];
+  let km=0; for(let i=1;i<chain.length;i++) km+=dist(chain[i-1],chain[i]);
+  const min=Math.round(km/52*60)+r.stops.length*45;
+  const near=r.stops.reduce((a,id)=>{const p=P(id);a.shop+=p.near.shop;a.stay+=p.near.stay;a.food+=p.near.food;return a},{shop:0,stay:0,food:0});
+  return {km:Math.round(km), min, near, worst:r.stops.some(id=>P(id).st==='warn')?'warn':'ok'};
+}
+const hhmm = m => (m>=60? Math.floor(m/60)+' год ' : '') + (m%60) + ' хв';
+const esc = s => String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function stamp(ts){const d=new Date(ts);const p=n=>String(n).padStart(2,'0');
+  return p(d.getDate())+'.'+p(d.getMonth()+1)+'.'+d.getFullYear()+' \u00B7 '+p(d.getHours())+':'+p(d.getMinutes());}
+
+/* проєкція для схематичної карти */
+const BOX={lon0:23.30,lon1:25.12,lat0:49.08,lat1:50.18,w:600,h:560};
+const X = lon => (lon-BOX.lon0)/(BOX.lon1-BOX.lon0)*BOX.w;
+const Y = lat => (BOX.lat1-lat)/(BOX.lat1-BOX.lat0)*BOX.h;
+
+function glyph(p,r){
+  const x=X(p.lon).toFixed(1), y=Y(p.lat).toFixed(1);
+  if(p.kind==='castle'||p.kind==='city')
+    return `<path d="M${x} ${y-r} L${x-r*.42} ${y-r*.42} L${+x-r} ${y} L${x-r*.42} ${+y+r*.42} L${x} ${+y+r} L${+x+r*.42} ${+y+r*.42} L${+x+r} ${y} L${+x+r*.42} ${y-r*.42} Z"`;
+  if(p.kind==='sacral') return `<circle cx="${x}" cy="${y}" r="${r*.72}"`;
+  return `<path d="M${x} ${y-r} L${+x+r*.86} ${+y+r*.6} L${x-r*.86} ${+y+r*.6} Z"`;
+}
+
+/* ═══════════ КАРТА ═══════════ */
+function mapSVG(list, opts){
+  opts=opts||{};
+  const grid=[];
+  for(let i=1;i<8;i++) grid.push(`<line x1="${i*75}" y1="0" x2="${i*75}" y2="560"/>`);
+  for(let i=1;i<8;i++) grid.push(`<line x1="0" y1="${i*70}" x2="600" y2="${i*70}"/>`);
+
+  const pins = list.map(p=>{
+    const on = !!S.visited[p.id];
+    const now = opts.now===p.id;
+    const fill = now? 'var(--copper)' : on? 'var(--verd-dk)' : 'var(--sheet)';
+    const g = glyph(p, now?11:9);
+    return `<g class="pt" onclick="openPoint('${p.id}')">
+      ${g} fill="${fill}" stroke="var(--ink)" stroke-width="1.6"/>
+      ${now?`<circle cx="${X(p.lon)}" cy="${Y(p.lat)}" r="20" fill="none" stroke="var(--copper)" stroke-width="1.2" opacity=".55"/>`:''}
+      <circle class="hit" cx="${X(p.lon)}" cy="${Y(p.lat)}" r="22"/>
+      <text x="${X(p.lon)+14}" y="${Y(p.lat)+4}" font-family="IBM Plex Mono,monospace" font-size="10.5"
+        fill="var(--ink)" opacity=".85">${esc(p.n.split(',')[0])}</text>
+    </g>`;
+  }).join('');
+
+  let track='';
+  if(opts.track && opts.track.length>1){
+    const d=opts.track.map((id,i)=>(i?'L':'M')+X(P(id).lon).toFixed(1)+' '+Y(P(id).lat).toFixed(1)).join(' ');
+    track=`<path d="${d}" fill="none" stroke="var(--copper)" stroke-width="2.4"
+      stroke-dasharray="7 5" stroke-linecap="round" opacity=".9"/>`;
+  }
+
+  return `<div class="map"><svg viewBox="0 0 600 560" role="img" aria-label="Схематична карта Львівщини">
+    <rect width="600" height="560" fill="var(--stone)"/>
+    <g stroke="var(--line)" stroke-width="1">${grid.join('')}</g>
+    <path d="M120 470 C200 430 260 440 330 400 C400 360 470 370 540 330" fill="none"
+      stroke="rgba(46,125,108,.5)" stroke-width="2.2"/>
+    <path d="M215 60 C230 130 200 200 240 260" fill="none" stroke="rgba(46,125,108,.5)" stroke-width="2"/>
+    <text x="128" y="486" font-family="IBM Plex Mono,monospace" font-size="9"
+      fill="var(--verd-dk)" opacity=".8">ДНІСТЕР</text>
+    ${track}${pins}
+  </svg><span class="mapnote">схематична карта \u00B7 Львівська обл.</span></div>`;
+}
+
+/* ═══════════ ЕКРАНИ ═══════════ */
+function stars(v, cls){
+  let h=`<div class="stars ${cls||''}">`;
+  for(let i=1;i<=5;i++) h+=`<span class="star ${i<=v?'on':''}"><svg viewBox="0 0 24 24">
+    <path d="M12 2.6l2.9 6 6.5.9-4.7 4.6 1.1 6.5L12 17.5 6.2 20.6l1.1-6.5L2.6 9.5l6.5-.9z"/></svg></span>`;
+  return h+'</div>';
+}
+function starPicker(pid, cur){
+  let h='<div class="stars" role="radiogroup" aria-label="Ваша оцінка">';
+  for(let i=1;i<=5;i++) h+=`<button class="star ${i<=cur?'on':''}" role="radio" aria-checked="${i===cur}"
+    aria-label="${i} з 5" onclick="pickStars('${pid}',${i})"><svg viewBox="0 0 24 24">
+    <path d="M12 2.6l2.9 6 6.5.9-4.7 4.6 1.1 6.5L12 17.5 6.2 20.6l1.1-6.5L2.6 9.5l6.5-.9z"/></svg></button>`;
+  return h+'</div>';
+}
+const stTag = st => st==='ok' ? '<span class="tag ok">доступно</span>'
+  : st==='warn' ? '<span class="tag warn">обмежено</span>' : '<span class="tag stop">закрито</span>';
+
+/* — екран: карта і теми — */
+function scrMap(){
+  const list = V.theme==='all' ? POINTS : POINTS.filter(p=>p.t.includes(V.theme));
+  const sorted = [...list].sort((a,b)=> V.sort==='pop' ? b.pop-a.pop : dist(P('rynok'),a)-dist(P('rynok'),b));
+  const vis = Object.keys(S.visited).length;
+
+  return `<div class="fade">
+    <div class="alert"><b>Повітряна тривога у Львівській обл.: немає.</b><br>
+      Дані оновлено 17.08.2026, 09:14. У робочій версії — автоматично через офіційне API тривог.</div>
+
+    <div class="chips" role="group" aria-label="Тема">
+      <button class="chip" aria-pressed="${V.theme==='all'}" onclick="setTheme('all')">Усі теми</button>
+      ${Object.entries(THEMES).map(([k,v])=>
+        `<button class="chip" aria-pressed="${V.theme===k}" onclick="setTheme('${k}')">${v}</button>`).join('')}
+    </div>
+
+    ${mapSVG(list)}
+
+    <div class="between" style="margin:16px 0 10px">
+      <span class="eyebrow">${list.length} точок \u00B7 ${vis} відвідано</span>
+      <button class="btn-sm" onclick="toggleSort()">${V.sort==='pop'?'Найпопулярніші':'Найближчі'} \u21C5</button>
+    </div>
+
+    ${sorted.map(p=>{
+      const d=Math.round(dist(P('rynok'),p));
+      const my=S.ratings[p.id];
+      return `<div class="card" onclick="openPoint('${p.id}')">
+        <div class="between"><h3>${esc(p.n)}</h3>${stTag(p.st)}</div>
+        <p class="lede" style="margin:7px 0 9px">${esc(p.s)}</p>
+        <div class="between">
+          <div class="row">${stars(Math.round(my||p.rate),'sm')}
+            <span class="meta">${(my||p.rate).toFixed(1)}${my?' \u00B7 ваша':''}</span></div>
+          <span class="meta">${d} км від Львова</span>
+        </div>
+        ${S.visited[p.id]?`<div style="margin-top:10px"><span class="stamp">Відвідано \u00B7 ${stamp(S.visited[p.id])}</span></div>`:''}
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+/* — екран: маршрути — */
+function scrRoutes(){
+  const themed = V.theme==='all' ? ROUTES
+    : ROUTES.filter(r=>r.stops.some(id=>P(id).t.includes(V.theme)));
+  return `<div class="fade">
+    <p class="lede" style="margin:0 0 14px">Маршрути будуються від Львова. Оберіть готовий або
+      відфільтруйте за темою на вкладці «Карта».</p>
+    ${themed.map(r=>{
+      const s=routeStats(r), fin=S.done.includes(r.id);
+      return `<div class="card" onclick="openRoute('${r.id}')">
+        <div class="between"><h3>${esc(r.n)}</h3>
+          ${fin?'<span class="tag ok">пройдено</span>':s.worst==='warn'?'<span class="tag warn">є обмеження</span>':''}</div>
+        <p class="lede" style="margin:7px 0 10px">${esc(r.why)}</p>
+        <div class="row" style="gap:14px">
+          <span class="meta">${r.stops.length} точки</span>
+          <span class="meta">${s.km} км</span>
+          <span class="meta">${hhmm(s.min)}</span>
+        </div>
+      </div>`;
+    }).join('') || '<p class="lede">За цією темою маршрутів поки немає. Спробуйте іншу.</p>'}
+  </div>`;
+}
+
+/* — екран: деталі маршруту — */
+function scrRoute(){
+  const r=ROUTES.find(x=>x.id===V.route), s=routeStats(r);
+  return `<div class="fade">
+    ${mapSVG(r.stops.map(P), {track:[r.from,...r.stops]})}
+    <div class="grid3" style="margin:14px 0">
+      <div class="stat"><b>${s.km}</b><span>кілометрів</span></div>
+      <div class="stat"><b>${Math.floor(s.min/60)}:${String(s.min%60).padStart(2,'0')}</b><span>у дорозі</span></div>
+      <div class="stat"><b>${r.stops.length}</b><span>зупинки</span></div>
+    </div>
+
+    <span class="eyebrow">Що поруч на маршруті</span>
+    <div class="row" style="gap:16px;margin:8px 0 16px">
+      <span class="meta">${s.near.shop} магазинів</span>
+      <span class="meta">${s.near.stay} місць ночівлі</span>
+      <span class="meta">${s.near.food} закладів їжі</span>
+    </div>
+
+    <span class="eyebrow">Зупинки</span>
+    <ul class="stops" style="margin-top:8px">
+      ${r.stops.map((id,i)=>{const p=P(id);return `<li>
+        <div class="dotcol"><span class="dot ${S.visited[id]?'done':''}"></span>${i<r.stops.length-1?'<span class="stem"></span>':''}</div>
+        <div style="flex:1">
+          <div class="between"><b style="font-size:13.5px">${esc(p.n)}</b>${stTag(p.st)}</div>
+          <p class="lede" style="margin:4px 0 0;font-size:12.5px">${esc(p.note)}</p>
+        </div></li>`}).join('')}
+    </ul>
+
+    <div class="rule"></div>
+    <button class="btn ghost" style="margin-bottom:10px" onclick="offline(this)">Завантажити для офлайну</button>
+    <button class="btn go" onclick="startJourney()">В подорож</button>
+    <p class="meta" style="text-align:center;margin:10px 0 0">Дані про точки оновлено 12.08.2026</p>
+  </div>`;
+}
+
+/* — екран: подорож — */
+function scrJourney(){
+  const r=ROUTES.find(x=>x.id===V.route), cur=P(r.stops[V.idx]);
+  const prev = V.idx===0 ? P(r.from) : P(r.stops[V.idx-1]);
+  const km = Math.round(dist(prev,cur));
+  return `<div class="fade">
+    ${mapSVG(r.stops.map(P), {track:[r.from,...r.stops], now:cur.id})}
+    <div class="card" style="margin-top:14px">
+      <span class="eyebrow">Наступна зупинка \u00B7 ${V.idx+1} з ${r.stops.length}</span>
+      <h2 style="font-size:19px;margin:8px 0 6px">${esc(cur.n)}</h2>
+      <div class="row" style="gap:14px">
+        <span class="meta">${km} км</span>
+        <span class="meta">~${Math.round(km/52*60)} хв</span>
+        ${stTag(cur.st)}
+      </div>
+    </div>
+    <p class="lede" style="font-size:12.5px">У робочій версії картка пам\u2019ятки відкриється автоматично,
+      щойно ви в\u2019їдете в радіус точки. Тут — вручну.</p>
+    <button class="btn go" onclick="arrive()">Я на місці</button>
+    <button class="btn ghost" style="margin-top:8px" onclick="go('routes')">Перервати подорож</button>
+  </div>`;
+}
+
+/* — екран: картка пам'ятки — */
+function scrPoint(){
+  const p=P(V.sel), my=S.ratings[p.id];
+  const inJourney = V.route && ROUTES.find(x=>x.id===V.route).stops[V.idx]===p.id;
+  return `<div class="fade">
+    <div class="plate">
+      ${V.media==='photo'? photoSVG(p) : reconSVG(p)}
+      <div class="switch">
+        <button aria-pressed="${V.media==='photo'}" onclick="setMedia('photo')">Фото сьогодні</button>
+        <button aria-pressed="${V.media==='recon'}" onclick="setMedia('recon')">Реконструкція</button>
+      </div>
+    </div>
+
+    <div class="between" style="margin:14px 0 8px">
+      <h2 style="font-size:19px">${esc(p.n)}</h2>${stTag(p.st)}
+    </div>
+    <div class="row" style="gap:9px;margin-bottom:12px">
+      ${p.t.map(t=>`<span class="tag">${THEMES[t]}</span>`).join('')}
+    </div>
+
+    <p class="lede" id="desc">${esc(p.s)}</p>
+    <button class="btn-sm" style="margin-top:8px" id="more" onclick="expand('${p.id}')">Читати повністю</button>
+
+    ${S.visited[p.id]?`<div style="margin:16px 0"><span class="stamp">Відвідано \u00B7 ${stamp(S.visited[p.id])}</span></div>`:''}
+
+    <div class="rule"></div>
+    <span class="eyebrow">Оцінка пам\u2019ятки</span>
+    <div class="between" style="margin:9px 0 12px">
+      <div class="row">${stars(Math.round(p.rate),'sm')}<span class="meta">${p.rate.toFixed(1)} \u00B7 ${p.cnt} оцінок</span></div>
+    </div>
+    <div class="card" style="background:rgba(46,125,108,.05)">
+      <span class="eyebrow">${my?'Ваша оцінка':'Оцініть від 1 до 5'}</span>
+      <div style="margin:9px 0 11px">${starPicker(p.id, V.draftStars||my||0)}</div>
+      <textarea class="field" id="rev" rows="2" placeholder="Кілька слів для інших мандрівників — не обов\u2019язково">${esc((S.ratings[p.id+':txt'])||'')}</textarea>
+      <button class="btn-sm" style="margin-top:9px;width:100%" onclick="saveReview('${p.id}')"
+        ${!(V.draftStars||my)?'disabled':''}>${my?'Оновити відгук':'Залишити відгук'}</button>
+      <p class="meta" style="margin:9px 0 0">Оцінку можна залишити лише з місця — це захищає рейтинг від накрутки.</p>
+    </div>
+
+    <div class="locked" style="margin-top:12px">
+      <span style="font-size:19px;opacity:.4">\u266A</span>
+      <div><b style="font-size:12.5px">Аудіорозповідь, 14 хв</b>
+        <p class="meta" style="margin:3px 0 0">Доступно у платній версії</p></div>
+    </div>
+
+    <div class="rule"></div>
+    <div class="between">
+      <span class="meta">Дані оновлено ${p.upd}</span>
+      <button class="btn-sm" onclick="report()">Повідомити про проблему</button>
+    </div>
+
+    ${inJourney?`<button class="btn go" style="margin-top:16px" onclick="continueJourney()">Продовжити подорож</button>`
+      :`<button class="btn ghost" style="margin-top:16px" onclick="go('map')">Назад до карти</button>`}
+  </div>`;
+}
+
+/* — екран: фініш — */
+function scrFinish(){
+  const r=ROUTES.find(x=>x.id===V.route);
+  const mins=Math.max(1,Math.round((Date.now()-V.t0)/60000));
+  const s=routeStats(r);
+  const fresh=V.fresh||[];
+  return `<div class="fade" style="text-align:center">
+    <div style="font-size:34px;margin:10px 0 4px;color:var(--verd-dk)">\u25C6</div>
+    <h2 style="font-size:22px">Вітаємо, ви завершили подорож</h2>
+    <p class="lede" style="margin:8px 0 18px">${esc(r.n)}</p>
+    ${mapSVG(r.stops.map(P),{track:[r.from,...r.stops]})}
+    <div class="grid3" style="margin:14px 0">
+      <div class="stat"><b>${r.stops.length}</b><span>точок</span></div>
+      <div class="stat"><b>${s.km}</b><span>км треку</span></div>
+      <div class="stat"><b>${hhmm(mins)}</b><span>у подорожі</span></div>
+    </div>
+    ${fresh.length?`<span class="eyebrow">Нові нагороди</span>
+      <div class="grid3" style="margin:9px 0 16px">${fresh.map(id=>{const b=BADGES.find(x=>x.id===id);
+        return `<div class="badge got"><div class="g">${b.g}</div><div class="n">${b.n}</div></div>`}).join('')}</div>`:''}
+    <button class="btn" onclick="go('profile')">До мандрівного листа</button>
+    <button class="btn ghost" style="margin-top:8px" onclick="go('routes')">Обрати новий маршрут</button>
+  </div>`;
+}
+
+/* — екран: профіль — */
+function scrProfile(){
+  const vis=Object.entries(S.visited).sort((a,b)=>b[1]-a[1]);
+  const rated=Object.keys(S.ratings).filter(k=>!k.includes(':')).length;
+  return `<div class="fade">
+    <div class="grid3" style="margin-bottom:16px">
+      <div class="stat"><b>${vis.length}</b><span>точок</span></div>
+      <div class="stat"><b>${S.done.length}</b><span>маршрутів</span></div>
+      <div class="stat"><b>${rated}</b><span>оцінок</span></div>
+    </div>
+
+    <span class="eyebrow">Нагороди \u00B7 ${S.badges.length} з 50</span>
+    <p class="meta" style="margin:5px 0 10px">У прототипі реалізовано 8</p>
+    <div class="grid3" style="margin-bottom:18px">
+      ${BADGES.map(b=>`<div class="badge ${S.badges.includes(b.id)?'got':''}">
+        <div class="g">${b.g}</div><div class="n">${b.n}</div><div class="d">${b.d}</div></div>`).join('')}
+    </div>
+
+    <span class="eyebrow">Штампи відвідин</span>
+    ${vis.length? '<div style="margin-top:10px">'+vis.map(([id,ts])=>{const p=P(id);const my=S.ratings[id];
+      return `<div class="card" onclick="openPoint('${id}')">
+        <div class="between"><b style="font-size:13.5px">${esc(p.n)}</b>
+          ${my?`<div class="row">${stars(my,'sm')}</div>`:'<span class="meta">без оцінки</span>'}</div>
+        <div style="margin-top:9px"><span class="stamp">${stamp(ts)}</span></div></div>`}).join('')+'</div>'
+      : '<p class="lede" style="margin-top:8px">Порожньо. Оберіть маршрут — і перший штамп з\u2019явиться тут.</p>'}
+
+    <div class="rule"></div>
+    <button class="btn-sm" style="width:100%" onclick="reset()">Очистити прогрес</button>
+  </div>`;
+}
+
+/* ═══════════ ІЛЮСТРАЦІЇ-ЗАГЛУШКИ ═══════════ */
+function photoSVG(p){
+  return `<svg viewBox="0 0 400 230"><rect width="400" height="230" fill="#CFCEC2"/>
+    <path d="M0 175 L60 150 L120 168 L190 128 L260 158 L330 138 L400 162 L400 230 L0 230 Z" fill="#B8B7A9"/>
+    <rect x="150" y="88" width="100" height="80" fill="#A3A295"/>
+    <rect x="138" y="70" width="24" height="98" fill="#96958A"/>
+    <rect x="238" y="70" width="24" height="98" fill="#96958A"/>
+    <rect x="192" y="122" width="16" height="46" fill="#7E7D74"/>
+    <circle cx="322" cy="52" r="18" fill="#DEDDD1" opacity=".8"/>
+    <text x="200" y="212" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="10"
+      fill="#5C5B52" letter-spacing="1.5">ФОТО ПАМ'ЯТКИ \u00B7 ${esc(p.n.split(',')[0].toUpperCase())}</text></svg>`;
+}
+function reconSVG(p){
+  return `<svg viewBox="0 0 400 230"><rect width="400" height="230" fill="#DDE3E0"/>
+    <g stroke="#2E7D6C" stroke-width="1" opacity=".28">
+      ${[1,2,3,4,5,6,7].map(i=>`<line x1="${i*50}" y1="0" x2="${i*50}" y2="230"/>`).join('')}
+      ${[1,2,3,4].map(i=>`<line x1="0" y1="${i*46}" x2="400" y2="${i*46}"/>`).join('')}
+    </g>
+    <g fill="none" stroke="#1C5849" stroke-width="1.9" stroke-linejoin="round">
+      <path d="M138 168 L138 62 L162 62 L162 168"/>
+      <path d="M238 168 L238 62 L262 62 L262 168"/>
+      <path d="M162 88 L238 88 L238 168 L162 168 Z"/>
+      <path d="M132 62 L150 40 L168 62"/><path d="M232 62 L250 40 L268 62"/>
+      <path d="M162 88 L200 66 L238 88"/>
+      <path d="M192 122 L192 168 M208 122 L208 168 M192 122 Q200 112 208 122"/>
+      <path d="M60 172 L340 172" stroke-dasharray="6 4" opacity=".65"/>
+    </g>
+    <text x="200" y="206" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="10"
+      fill="#1C5849" letter-spacing="1.5">РЕКОНСТРУКЦІЯ \u00B7 ІМОВІРНИЙ ВИГЛЯД</text></svg>`;
+}
+
+/* ═══════════ ДІЇ ═══════════ */
+function setTheme(t){V.theme=t;render()}
+function toggleSort(){V.sort=V.sort==='pop'?'near':'pop';render()}
+function openRoute(id){V.route=id;V.screen='route';render()}
+function openPoint(id){V.sel=id;V.media='photo';V.draftStars=0;V.screen='point';render()}
+function setMedia(m){V.media=m;render()}
+function expand(id){document.getElementById('desc').textContent=P(id).f;document.getElementById('more').remove()}
+function offline(b){b.textContent='Завантажено \u00B7 42 МБ';b.disabled=true}
+function report(){alert('Форма звіту: що не так із точкою?\n\n\u2022 закрито / змінився графік\n\u2022 небезпечно, пошкоджено\n\u2022 помилка в описі\n\nУ робочій версії — черга модерації.')}
+
+function go(s){V.screen=s;window.scrollTo(0,0);render()}
+function startJourney(){V.idx=0;V.t0=Date.now();V.screen='journey';render()}
+function arrive(){
+  const r=ROUTES.find(x=>x.id===V.route), id=r.stops[V.idx];
+  if(!S.visited[id]) S.visited[id]=Date.now();
+  save(); checkBadges(); openPoint(id);
+}
+function continueJourney(){
+  const r=ROUTES.find(x=>x.id===V.route);
+  if(V.idx < r.stops.length-1){ V.idx++; V.screen='journey'; }
+  else { if(!S.done.includes(r.id)) S.done.push(r.id);
+    V.fresh=checkBadges(); save(); V.screen='finish'; }
+  window.scrollTo(0,0); render();
+}
+function pickStars(id,n){V.draftStars=n;render()}
+function saveReview(id){
+  const n=V.draftStars||S.ratings[id]; if(!n) return;
+  S.ratings[id]=n;
+  const t=document.getElementById('rev');
+  if(t && t.value.trim()) S.ratings[id+':txt']=t.value.trim(); else delete S.ratings[id+':txt'];
+  V.draftStars=0; save(); V.fresh=checkBadges(); render();
+}
+function reset(){ if(confirm('Очистити всі штампи, оцінки й нагороди?')){
+  S={visited:{},ratings:{},done:[],badges:[]}; save(); render(); } }
+
+function checkBadges(){
+  const v=Object.keys(S.visited), fresh=[];
+  const add=id=>{ if(!S.badges.includes(id)){S.badges.push(id);fresh.push(id);} };
+  if(v.length>=1) add('first');
+  if(v.length>=5) add('five');
+  if(['olesko','pidhirtsi','zolochiv'].every(x=>v.includes(x))) add('horseshoe');
+  if(v.filter(x=>P(x).t.includes('ruin')).length>=3) add('ruin');
+  if(Object.keys(S.ratings).filter(k=>!k.includes(':')).length>=5) add('critic');
+  if(['krekhiv','univ'].every(x=>v.includes(x))) add('sacral');
+  if(S.done.length>=1) add('route1');
+  if(v.includes('tustan')) add('rock');
+  save(); return fresh;
+}
+
+/* ═══════════ РЕНДЕР ═══════════ */
+const TITLES={map:['Спадок','Львівщина \u00B7 MVP'],routes:['Маршрути','від Львова'],
+  route:['Маршрут',''],journey:['У дорозі',''],point:['Пам\u2019ятка',''],
+  finish:['Подорож завершено',''],profile:['Мандрівний лист','']};
+
+function render(){
+  const [t,sub]=TITLES[V.screen];
+  const backTo = {route:'routes', journey:'route', point:(V.route&&V.screen==='point')?'journey':'map', finish:null};
+  const b=backTo[V.screen];
+  document.getElementById('bar').innerHTML =
+    (b?`<button class="back" onclick="go('${b}')" aria-label="Назад">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M15 18l-6-6 6-6"/></svg></button>`:'')+
+    `<div><h1>${t}</h1>${sub?`<div class="sub">${sub}</div>`:''}</div>`;
+
+  document.getElementById('body').innerHTML =
+    V.screen==='map'?scrMap(): V.screen==='routes'?scrRoutes(): V.screen==='route'?scrRoute():
+    V.screen==='journey'?scrJourney(): V.screen==='point'?scrPoint():
+    V.screen==='finish'?scrFinish(): scrProfile();
+
+  const items=[['map','Карта','M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z'],
+    ['routes','Маршрути','M4 19h6a4 4 0 000-8H9a4 4 0 010-8h11'],
+    ['journey','Подорож','M12 21s7-6.4 7-11a7 7 0 10-14 0c0 4.6 7 11 7 11z'],
+    ['profile','Лист','M6 3h9l4 4v14H6z M9 12h7 M9 16h5']];
+  document.getElementById('nav').innerHTML = items.map(([k,l,d])=>{
+    const dis = k==='journey' && !V.route;
+    return `<button aria-current="${V.screen===k}" ${dis?'disabled style="opacity:.35"':''}
+      onclick="${dis?'':`go('${k}')`}">
+      <svg width="17" height="17" viewBox="0 0 24 24"><path d="${d}"/></svg>${l}</button>`}).join('');
+}
+
+load().then(render);
+</script>

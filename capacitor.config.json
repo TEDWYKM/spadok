@@ -1,0 +1,16 @@
+{
+  "appId": "ua.spadok.app",
+  "appName": "Спадок",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": true
+  },
+  "plugins": {
+    "Geolocation": {
+      "comment": "Дозволи прописані в AndroidManifest скриптом scripts/patch-android.mjs"
+    }
+  }
+}

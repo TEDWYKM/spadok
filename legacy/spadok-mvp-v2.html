@@ -1,0 +1,642 @@
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  --ink:#15242E; --ink-2:#3A5060; --ink-3:#6D8091;
+  --sheet:#F2F1E9; --stone:#DFDFD3;
+  --verd:#2E7D6C; --verd-dk:#1C5849;
+  --copper:#A8542B; --gold:#B08417;
+  --line:rgba(21,36,46,.14); --line-2:rgba(21,36,46,.28);
+  --shadow:0 1px 0 rgba(21,36,46,.08), 0 12px 32px -18px rgba(21,36,46,.5);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:transparent;font-family:"IBM Plex Sans",system-ui,sans-serif;color:var(--ink)}
+button{font:inherit;color:inherit;cursor:pointer;border:none;background:none}
+h1,h2,h3{font-family:"Unbounded",system-ui,sans-serif;font-weight:600;letter-spacing:-.02em;margin:0}
+
+.frame{max-width:430px;margin:0 auto;background:var(--sheet);border:1px solid var(--line-2);
+  border-radius:20px;overflow:hidden;box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:780px}
+.bar{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line);
+  background:var(--sheet);position:sticky;top:0;z-index:900}
+.bar h1{font-size:15px}
+.bar .sub{font-family:"IBM Plex Mono",monospace;font-size:10px;color:var(--ink-3);letter-spacing:.14em;text-transform:uppercase}
+.back{width:30px;height:30px;border:1px solid var(--line-2);border-radius:8px;display:grid;place-items:center;flex:none}
+.body{flex:1;overflow:auto;padding:16px 16px 96px}
+.nav{position:sticky;bottom:0;display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--line);
+  background:var(--sheet);z-index:900}
+.nav button{padding:11px 4px 13px;display:flex;flex-direction:column;align-items:center;gap:5px;
+  font-family:"IBM Plex Mono",monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.nav button[aria-current="true"]{color:var(--verd-dk)}
+.nav button[aria-current="true"] svg{stroke:var(--verd-dk)}
+.nav svg{stroke:var(--ink-3);fill:none;stroke-width:1.5}
+
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3)}
+.lede{font-size:13.5px;line-height:1.55;color:var(--ink-2)}
+.rule{height:1px;background:var(--line);margin:18px 0}
+
+.lmap{height:330px;border:1px solid var(--line-2);border-radius:14px;overflow:hidden;background:var(--stone);position:relative;z-index:1}
+.lmap.tall{height:390px}
+.leaflet-container{font-family:"IBM Plex Sans",sans-serif;background:var(--stone)}
+.leaflet-control-attribution{font-size:9px!important;background:rgba(242,241,233,.86)!important}
+.leaflet-popup-content-wrapper{border-radius:11px;background:var(--sheet);box-shadow:var(--shadow)}
+.leaflet-popup-content{margin:11px 13px;font-size:13px}
+.leaflet-bar a{color:var(--ink)!important}
+.mk{display:grid;place-items:center}
+.mk i{display:block;width:15px;height:15px;border:1.7px solid var(--ink);background:var(--sheet);
+  transform:rotate(45deg);border-radius:2px}
+.mk.sacral i{border-radius:50%;transform:none}
+.mk.ruin i{clip-path:polygon(50% 0,100% 100%,0 100%);transform:none;border-radius:0}
+.mk.on i{background:var(--verd-dk);border-color:var(--verd-dk)}
+.mk.now i{background:var(--copper);border-color:var(--copper);box-shadow:0 0 0 5px rgba(168,84,43,.22)}
+.mapbar{display:flex;gap:6px;margin:8px 0 4px;align-items:center}
+.mapbar .meta{margin-left:auto}
+.fallback{padding:14px;text-align:center;height:auto!important}
+.fallback svg{max-width:100%;height:auto}
+
+.chips{display:flex;gap:6px;overflow-x:auto;padding:2px 0 6px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{white-space:nowrap;padding:7px 12px;border:1px solid var(--line-2);border-radius:999px;font-size:12px;background:transparent}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--sheet);border-color:var(--ink)}
+.chip.sm{padding:5px 10px;font-size:11px}
+
+.card{border:1px solid var(--line-2);border-radius:14px;background:#FAF9F3;padding:14px;margin-bottom:10px}
+.card h3{font-size:14.5px;line-height:1.3}
+.row{display:flex;align-items:center;gap:8px}
+.between{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.meta{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3)}
+.tag{font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;
+  padding:3px 7px;border-radius:5px;border:1px solid var(--line-2);color:var(--ink-2);white-space:nowrap}
+.tag.ok{color:var(--verd-dk);border-color:rgba(46,125,108,.45);background:rgba(46,125,108,.08)}
+.tag.warn{color:var(--copper);border-color:rgba(168,84,43,.4);background:rgba(168,84,43,.08)}
+.tag.size{color:var(--ink);border-color:var(--line-2);background:rgba(21,36,46,.05)}
+
+.btn{display:block;width:100%;padding:15px;border-radius:12px;background:var(--ink);color:var(--sheet);
+  font-family:"Unbounded",sans-serif;font-size:13px;font-weight:600;text-align:center}
+.btn.go{background:var(--verd-dk)}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line-2)}
+.btn:disabled{opacity:.4}
+.btn-sm{padding:9px 14px;border:1px solid var(--line-2);border-radius:9px;font-size:12px}
+
+.stars{display:flex;gap:5px}
+.star{width:30px;height:30px;display:grid;place-items:center}
+.star svg{width:25px;height:25px}
+.star svg path{fill:none;stroke:var(--ink-3);stroke-width:1.4;stroke-linejoin:round}
+.star.on svg path{fill:var(--gold);stroke:var(--gold)}
+.stars.sm .star{width:15px;height:15px}
+.stars.sm .star svg{width:13px;height:13px}
+
+.stamp{border:1.5px solid var(--verd-dk);color:var(--verd-dk);border-radius:8px;padding:6px 9px;
+  font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+  transform:rotate(-2.5deg);display:inline-block;opacity:.85}
+
+.plate{border:1px solid var(--line-2);border-radius:12px;overflow:hidden;background:var(--stone)}
+.plate svg{display:block;width:100%;height:auto}
+.switch{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--line-2)}
+.switch button{padding:9px;font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink-3);background:#EDEBE1}
+.switch button[aria-pressed="true"]{background:var(--ink);color:var(--sheet)}
+
+.locked{border:1px dashed var(--line-2);border-radius:12px;padding:13px;display:flex;gap:11px;align-items:center;background:rgba(21,36,46,.03)}
+.alert{border:1px solid rgba(168,84,43,.4);background:rgba(168,84,43,.07);border-radius:11px;padding:11px 13px;
+  font-size:12px;line-height:1.5;color:#7C3E1F;margin-bottom:12px}
+.field{width:100%;border:1px solid var(--line-2);border-radius:10px;padding:11px;font:inherit;font-size:13px;
+  background:#FAF9F3;resize:vertical;color:var(--ink)}
+.field:focus{outline:2px solid var(--verd);outline-offset:1px}
+.badge{border:1px solid var(--line-2);border-radius:12px;padding:12px;text-align:center;background:#FAF9F3}
+.badge.got{border-color:var(--gold);background:rgba(176,132,23,.09)}
+.badge .g{font-size:22px;line-height:1;margin-bottom:6px;filter:grayscale(1);opacity:.35}
+.badge.got .g{filter:none;opacity:1}
+.badge .n{font-size:10.5px;line-height:1.3;font-weight:600}
+.badge .d{font-size:9.5px;color:var(--ink-3);margin-top:3px;line-height:1.3}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.stat{border:1px solid var(--line-2);border-radius:11px;padding:11px;text-align:center;background:#FAF9F3}
+.stat b{font-family:"Unbounded",sans-serif;font-size:18px;display:block;line-height:1.1}
+.stat span{font-family:"IBM Plex Mono",monospace;font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.stops{list-style:none;padding:0;margin:0}
+.stops li{display:flex;gap:11px;padding:9px 0}
+.dotcol{display:flex;flex-direction:column;align-items:center;flex:none;width:16px}
+.dot{width:9px;height:9px;border-radius:50%;border:1.5px solid var(--ink);background:var(--sheet);flex:none;margin-top:4px}
+.dot.done{background:var(--verd-dk);border-color:var(--verd-dk)}
+.stem{width:1.5px;flex:1;background:var(--line-2);margin:3px 0}
+.dayhead{display:flex;align-items:baseline;gap:9px;margin:16px 0 2px;padding-top:12px;border-top:1px solid var(--line)}
+.dayhead b{font-family:"Unbounded",sans-serif;font-size:13px}
+:focus-visible{outline:2px solid var(--verd);outline-offset:2px}
+</style>
+
+<div class="frame">
+  <div class="bar" id="bar"></div>
+  <div class="body" id="body"></div>
+  <nav class="nav" id="nav"></nav>
+</div>
+
+<script>
+/* ═════════ ДАНІ · Львівщина (демо-набір, координати приблизні) ═════════
+   Продакшн-джерела: Держреєстр нерухомих пам'яток + data.gov.ua + краудсорсинг */
+
+const THEMES={castle:'Замки і фортеці',ruin:'Руїни та забуті',sacral:'Сакральна спадщина',
+  baroque:'Ренесанс і бароко',rus:'Давньоруська доба',unesco:'Спадщина ЮНЕСКО'};
+
+const POINTS=[
+ {id:'rynok',n:'Площа Ринок, Львів',lat:49.8419,lon:24.0315,t:['unesco','baroque'],pop:99,st:'ok',kind:'city',rate:4.8,cnt:5400,upd:'12.08.2026',
+  s:'Ядро історичного центру Львова зі списку всесвітньої спадщини.',
+  f:'Площа зберегла середньовічне планування з ратушею в центрі й кам\u2019яницями по периметру. Кожна кам\u2019яниця має власну історію власників і перебудов, тому маршрут тут будується не «по площі», а по конкретних будинках.',
+  near:{shop:20,stay:30,food:40},note:'Стартова точка більшості маршрутів по області.'},
+ {id:'vysokyi',n:'Високий Замок, Львів',lat:49.8497,lon:24.0397,t:['castle','ruin'],pop:85,st:'ok',kind:'ruin',rate:4.4,cnt:2100,upd:'12.08.2026',
+  s:'Пагорб над Львовом із залишками мурів і панорамою міста.',
+  f:'Від самого замку майже нічого не лишилося — цінність точки сьогодні в оглядовому майданчику й у розумінні, як місто виглядало з висоти оборонної споруди. Підйом пішки — близько 20 хвилин від центру.',
+  near:{shop:4,stay:12,food:15},note:'Підйом крутий. Взуття має значення.'},
+ {id:'olesko',n:'Олеський замок',lat:49.9686,lon:24.8963,t:['castle','baroque'],pop:95,st:'ok',kind:'castle',rate:4.6,cnt:1240,upd:'12.08.2026',
+  s:'Один із найдавніших замків Галичини на високому пагорбі.',
+  f:'Замок стоїть на пагорбі серед рівнини, що робило його ключовою оборонною точкою регіону. Кілька разів перебудовувався, тому в його вигляді змішані оборонні й палацові риси. Сьогодні працює музейна експозиція, довкола збереглися залишки парку.',
+  near:{shop:2,stay:3,food:4},note:'Графік музею змінюється посезонно — перевірте перед виїздом.'},
+ {id:'pidhirtsi',n:'Підгорецький замок',lat:49.9414,lon:24.9890,t:['castle','baroque'],pop:88,st:'warn',kind:'castle',rate:4.4,cnt:870,upd:'12.08.2026',
+  s:'Палац-замок з бастіонними укріпленнями. Всередині — обмежений доступ.',
+  f:'Поєднання житлового палацу з бастіонною системою укріплень — рідкісний для регіону тип. Комплексну реставрацію планували ще у 2022 році, але повномасштабна війна її зупинила, тому частина приміщень зачинена. Ззовні комплекс і тераси доступні.',
+  near:{shop:1,stay:1,food:2},note:'Внутрішні приміщення можуть бути зачинені. Огляд переважно ззовні.'},
+ {id:'zolochiv',n:'Золочівський замок',lat:49.8060,lon:24.9004,t:['castle','baroque'],pop:90,st:'ok',kind:'castle',rate:4.5,cnt:1010,upd:'12.08.2026',
+  s:'Бастіонний замок з палацовим комплексом у межах міста.',
+  f:'Замок збудований за голландською бастіонною системою — чотири земляні бастіони, обкладені каменем. У дворі стоять два палаци, один із них має незвичну для регіону архітектуру. Комплекс входить до Львівської галереї мистецтв.',
+  near:{shop:6,stay:4,food:8},note:'Найзручніша точка для обіду й дозаправки на маршруті.'},
+ {id:'brody',n:'Бродівська фортеця',lat:50.0793,lon:25.1497,t:['castle','baroque'],pop:50,st:'warn',kind:'castle',rate:3.9,cnt:230,upd:'12.08.2026',
+  s:'Земляна бастіонна фортеця нового типу — без високих мурів.',
+  f:'Тут добре видно перехід від середньовічного замку до артилерійської фортеці: замість високих стін — низькі земляні бастіони, розраховані на витримування гарматного вогню. Збереглася частина валів і палацовий корпус.',
+  near:{shop:7,stay:3,food:6},note:'Частина території занедбана, доступ місцями обмежений.'},
+ {id:'pidkamin',n:'Підкамінь, монастир',lat:49.9333,lon:25.2500,t:['sacral','baroque'],pop:42,st:'ok',kind:'sacral',rate:4.3,cnt:190,upd:'12.08.2026',
+  s:'Укріплений монастир на горі з оборонними мурами й баштами.',
+  f:'Комплекс на височині будувався з розрахунком на облогу — мури, наріжні башти, автономне водопостачання. Поруч — відомий природний камінь-останець, від якого походить назва містечка.',
+  near:{shop:2,stay:1,food:2},note:'Діюча обитель. Підйом на гору — пішки.'},
+ {id:'svirzh',n:'Свірзький замок',lat:49.6236,lon:24.4194,t:['castle'],pop:70,st:'ok',kind:'castle',rate:4.3,cnt:410,upd:'12.08.2026',
+  s:'Замок над ставом, знайомий за зйомками українського кіно.',
+  f:'Комплекс закладено наприкінці XV століття власниками містечка Свірж. Розташування над водою й терасами робить його одним із найфотогенічніших у регіоні, тому замок неодноразово ставав знімальним майданчиком.',
+  near:{shop:1,stay:1,food:1},note:'Малий населений пункт: заправтеся й купіть воду заздалегідь.'},
+ {id:'univ',n:'Унівська лавра',lat:49.6733,lon:24.4550,t:['sacral'],pop:45,st:'ok',kind:'sacral',rate:4.4,cnt:210,upd:'12.08.2026',
+  s:'Укріплений монастир з баштами, поруч зі Свіржем.',
+  f:'Комплекс має виражені оборонні елементи — мури й наріжні вежі, що ставить його ближче до фортифікацій, ніж до звичайного монастиря. Добре поєднується у маршруті зі Свірзьким замком.',
+  near:{shop:1,stay:1,food:1},note:'Діюча обитель, фотографування — за погодженням.'},
+ {id:'zhovkva',n:'Жовківський замок',lat:50.0553,lon:23.9725,t:['castle','baroque'],pop:72,st:'ok',kind:'castle',rate:4.1,cnt:520,upd:'12.08.2026',
+  s:'Замок у центрі ренесансного міста, спланованого як ансамбль.',
+  f:'Цінність тут не лише в замку, а в тому, що місто будувалося як цілісний ренесансний ансамбль із площею, укріпленнями й храмами. Частина замку відреставрована, частина — у роботі.',
+  near:{shop:9,stay:5,food:11},note:'Закладіть час на центр міста, а не тільки на замок.'},
+ {id:'krekhiv',n:'Крехівський монастир',lat:50.0350,lon:23.7800,t:['sacral'],pop:55,st:'ok',kind:'sacral',rate:4.5,cnt:380,upd:'12.08.2026',
+  s:'Монастирський комплекс у лісі, з оборонними рисами в забудові.',
+  f:'Монастир будувався як укріплений комплекс — з мурами й вежами, бо стояв на небезпечному напрямку. Довкола ліс і джерела, тому точка добре працює як тиха зупинка після насиченого замкового дня.',
+  near:{shop:1,stay:2,food:2},note:'Діючий монастир: одяг і поведінка відповідно.'},
+ {id:'potelych',n:'Церква Св. Духа, Потелич',lat:50.1600,lon:23.5300,t:['unesco','sacral'],pop:38,st:'ok',kind:'sacral',rate:4.6,cnt:140,upd:'12.08.2026',
+  s:'Одна з найдавніших дерев\u2019яних церков України, спадщина ЮНЕСКО.',
+  f:'Дерев\u2019яний храм галицького типу, зрубна конструкція без цвяхів у несучих вузлах. Входить до серійного об\u2019єкта всесвітньої спадщини «Дерев\u2019яні церкви Карпатського регіону». Всередині зберігся стінопис.',
+  near:{shop:1,stay:0,food:1},note:'Церква часто зачинена — ключі у сторожа поруч.'},
+ {id:'drohobych',n:'Церква св. Юра, Дрогобич',lat:49.3477,lon:23.4900,t:['unesco','sacral'],pop:65,st:'ok',kind:'sacral',rate:4.7,cnt:460,upd:'12.08.2026',
+  s:'Дерев\u2019яна церква зі списку ЮНЕСКО, з унікальним стінописом.',
+  f:'Один із найкраще збережених зразків галицької дерев\u2019яної сакральної архітектури. Цінність не лише в конструкції, а й у розписах інтер\u2019єру, що вкривають майже всю площу стін. Об\u2019єкт всесвітньої спадщини ЮНЕСКО.',
+  near:{shop:12,stay:6,food:14},note:'Працює як музей — є фіксовані години доступу.'},
+ {id:'tustan',n:'Тустань, Урич',lat:49.1663,lon:23.4333,t:['rus','ruin'],pop:75,st:'ok',kind:'ruin',rate:4.7,cnt:690,upd:'12.08.2026',
+  s:'Наскельна фортеця: дерев\u2019яні конструкції кріпилися просто до скель.',
+  f:'Унікальний тип оборонної споруди — дерев\u2019яні стіни спиралися безпосередньо на скельні масиви, від них лишилися вирубані пази й отвори. Саме тому реконструкція тут особливо цінна: без неї побачити фортецю майже неможливо.',
+  near:{shop:1,stay:3,food:2},note:'Ґрунтова дорога на під\u2019їзді. Після дощу — обережно.'},
+ {id:'stilske',n:'Стільське городище',lat:49.5300,lon:23.9200,t:['rus','ruin'],pop:30,st:'warn',kind:'ruin',rate:4.0,cnt:95,upd:'12.08.2026',
+  s:'Залишки великого давньоруського городища серед лісу.',
+  f:'Одне з найбільших за площею укріплених поселень свого часу на цих землях. На поверхні читаються вали й рови, решта — під землею. Точка для тих, хто готовий бачити історію без готових декорацій.',
+  near:{shop:1,stay:0,food:0},note:'Немає інфраструктури. Навігація в лісі слабка — качайте офлайн.'},
+ {id:'stareselo',n:'Замок у Старому Селі',lat:49.7325,lon:24.1136,t:['castle','ruin'],pop:35,st:'warn',kind:'ruin',rate:3.9,cnt:150,upd:'12.08.2026',
+  s:'Один із найбільших за площею замків регіону — нині руїна.',
+  f:'Периметр мурів вражає розмахом, але стан конструкцій аварійний, реставрація не завершена. Точка добре показує масштаб втрат спадщини — і те, що масштаб замку не гарантував йому збереження.',
+  near:{shop:2,stay:0,food:1},note:'Аварійні мури. Тримайтеся зовнішнього обходу.'},
+ {id:'pomoriany',n:'Поморянський замок',lat:49.6053,lon:24.9086,t:['castle','ruin'],pop:40,st:'warn',kind:'ruin',rate:3.6,cnt:120,upd:'12.08.2026',
+  s:'Занедбаний замок, від якого лишилася частина корпусів.',
+  f:'Один із тих об\u2019єктів, які майже не потрапляють у популярні добірки. Збереглася частина мурів і корпусів, стан аварійний. Саме такі точки найбільше потребують уваги — і найшвидше зникають без неї.',
+  near:{shop:2,stay:0,food:1},note:'Аварійний стан. Не заходьте всередину конструкцій.'}
+];
+
+const ROUTES=[
+ {id:'horseshoe',n:'Золота підкова',size:'s',why:'Найпопулярніший маршрут області, за один день',
+  days:[['olesko','pidhirtsi','zolochiv']],from:'rynok'},
+ {id:'lviv',n:'Львів за пів дня',size:'s',why:'Пішки, без авто',
+  days:[['rynok','vysokyi']],from:'rynok'},
+ {id:'rock',n:'Скеля замість мурів',size:'s',why:'Південь області: дерево і камінь',
+  days:[['drohobych','tustan']],from:'rynok'},
+ {id:'north',n:'Північна дуга',size:'s',why:'Жовква і Крехів за один виїзд',
+  days:[['zhovkva','krekhiv']],from:'rynok'},
+
+ {id:'horseshoe-plus',n:'Розширена підкова',size:'m',why:'Ті самі замки плюс бастіони і менш людні точки',
+  days:[['olesko','pidhirtsi','brody'],['pidkamin','zolochiv','pomoriany']],from:'rynok'},
+ {id:'wood',n:'Дерев\u2019яна спадщина',size:'m',why:'Дві церкви ЮНЕСКО і укріплені обителі',
+  days:[['potelych','zhovkva','krekhiv'],['drohobych','tustan']],from:'rynok'},
+ {id:'ruins',n:'Забуті мури',size:'m',why:'Точки, які майже не потрапляють у добірки',
+  days:[['stareselo','stilske'],['pomoriany','univ','svirzh']],from:'rynok'},
+
+ {id:'grand',n:'Велике коло Львівщини',size:'l',why:'Уся область за чотири дні: 16 точок, усі теми',
+  days:[['rynok','vysokyi','zhovkva','krekhiv'],
+        ['potelych','olesko','pidhirtsi','brody'],
+        ['pidkamin','zolochiv','pomoriany','univ'],
+        ['svirzh','stareselo','stilske','drohobych']],from:'rynok'},
+ {id:'defense',n:'Оборонна дуга',size:'l',why:'Від давньоруського городища до бастіонної фортеці — еволюція укріплень',
+  days:[['stilske','stareselo','vysokyi'],
+        ['zhovkva','krekhiv','potelych'],
+        ['olesko','pidhirtsi','brody','pidkamin']],from:'rynok'}
+];
+const SIZES={s:{n:'Короткі',d:'1 день'},m:{n:'Середні',d:'2 дні'},l:{n:'Великі',d:'3\u20134 дні'}};
+
+const BADGES=[
+ {id:'first',g:'\u25C6',n:'Перший камінь',d:'Перша точка'},
+ {id:'horseshoe',g:'\u2726',n:'Золота підкова',d:'Олесько + Підгірці + Золочів'},
+ {id:'five',g:'\u25B2',n:'П\u2019ять твердинь',d:'5 різних точок'},
+ {id:'ruin',g:'\u25AB',n:'Хранитель руїн',d:'3 занедбані пам\u2019ятки'},
+ {id:'critic',g:'\u2605',n:'Голос мандрівника',d:'5 оцінок'},
+ {id:'unesco',g:'\u271D',n:'Дерево і час',d:'Обидві церкви ЮНЕСКО'},
+ {id:'route1',g:'\u25CF',n:'Маршрут пройдено',d:'Будь-який маршрут'},
+ {id:'rock',g:'\u25C7',n:'Камінь і дерево',d:'Дійти до Тустані'},
+ {id:'long',g:'\u2B21',n:'Довга дорога',d:'Великий маршрут'},
+ {id:'all',g:'\u25C8',n:'Уся Львівщина',d:'Усі 17 точок'}
+];
+
+/* ═════════ СТАН ═════════ */
+const KEY='spadok:lviv:v2';
+let S={visited:{},ratings:{},done:[],badges:[]};
+let V={screen:'map',theme:'all',sort:'pop',size:'all',route:null,idx:0,t0:0,sel:null,media:'photo',draftStars:0,tiles:'osm'};
+let MOUNT=null,LMAP=null,LEAFLET=null;
+
+async function load(){try{const r=await window.storage.get(KEY);if(r&&r.value)S=Object.assign(S,JSON.parse(r.value));}catch(e){}}
+async function save(){try{await window.storage.set(KEY,JSON.stringify(S));}catch(e){}}
+
+/* ═════════ УТИЛІТИ ═════════ */
+const P=id=>POINTS.find(p=>p.id===id);
+const flat=r=>r.days.reduce((a,d)=>a.concat(d),[]);
+function dist(a,b){const R=6371,r=x=>x*Math.PI/180;const dLat=r(b.lat-a.lat),dLon=r(b.lon-a.lon);
+  const h=Math.sin(dLat/2)**2+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));}
+function dayKm(r,d){const ch=[P(r.from),...d.map(P),P(r.from)];let k=0;
+  for(let i=1;i<ch.length;i++)k+=dist(ch[i-1],ch[i]);return Math.round(k);}
+function routeStats(r){
+  const st=flat(r);let km=0;r.days.forEach(d=>{km+=dayKm(r,d)});
+  const min=Math.round(km/52*60)+st.length*45;
+  const near=st.reduce((a,id)=>{const p=P(id);a.shop+=p.near.shop;a.stay+=p.near.stay;a.food+=p.near.food;return a},{shop:0,stay:0,food:0});
+  return{km,min,near,stops:st.length,days:r.days.length,warn:st.some(id=>P(id).st==='warn')};}
+const hhmm=m=>(m>=60?Math.floor(m/60)+' год ':'')+(m%60)+' хв';
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function stamp(ts){const d=new Date(ts),p=n=>String(n).padStart(2,'0');
+  return p(d.getDate())+'.'+p(d.getMonth()+1)+'.'+d.getFullYear()+' \u00B7 '+p(d.getHours())+':'+p(d.getMinutes());}
+function dayOf(r,i){let c=0;for(let d=0;d<r.days.length;d++){c+=r.days[d].length;if(i<c)return d;}return r.days.length-1;}
+
+/* ═════════ ІНТЕРАКТИВНА КАРТА · Leaflet + OpenStreetMap ═════════ */
+function loadLeaflet(){
+  if(LEAFLET)return LEAFLET;
+  LEAFLET=new Promise(res=>{
+    if(window.L)return res(true);
+    const css=document.createElement('link');css.rel='stylesheet';
+    css.href='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
+    document.head.appendChild(css);
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+    s.onload=()=>res(true);s.onerror=()=>res(false);
+    setTimeout(()=>res(!!window.L),8000);
+    document.head.appendChild(s);
+  });
+  return LEAFLET;
+}
+const TILES={
+  osm:{u:'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    a:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',n:'Стандартна'},
+  light:{u:'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+    a:'&copy; OpenStreetMap, &copy; CARTO',n:'Світла'}
+};
+
+async function mountMap(){
+  if(!MOUNT)return;
+  const cfg=MOUNT;MOUNT=null;
+  const el=document.getElementById('lmap');if(!el)return;
+  const ok=await loadLeaflet();
+  if(!ok||!window.L){el.classList.add('fallback');el.innerHTML=fallbackSVG(cfg);return;}
+  if(LMAP){try{LMAP.remove()}catch(e){}LMAP=null;}
+  let map;
+  try{map=L.map(el,{zoomControl:true,scrollWheelZoom:false});}
+  catch(e){el.classList.add('fallback');el.innerHTML=fallbackSVG(cfg);return;}
+  LMAP=map;
+  const t=TILES[V.tiles];
+  const layer=L.tileLayer(t.u,{attribution:t.a,maxZoom:18,subdomains:'abcd'}).addTo(map);
+  let bad=0,good=0;
+  layer.on('tileload',()=>{good++});
+  layer.on('tileerror',()=>{bad++;if(bad>8&&good===0&&LMAP===map){
+    try{map.remove()}catch(e){}LMAP=null;el.classList.add('fallback');el.innerHTML=fallbackSVG(cfg);}});
+
+  cfg.points.forEach(p=>{
+    const on=!!S.visited[p.id],now=cfg.now===p.id;
+    const cls='mk '+(p.kind==='sacral'?'sacral ':p.kind==='ruin'?'ruin ':'')+(now?'now':on?'on':'');
+    L.marker([p.lat,p.lon],{icon:L.divIcon({className:'',html:'<div class="'+cls+'"><i></i></div>',
+      iconSize:[22,22],iconAnchor:[11,11]}),title:p.n}).addTo(map)
+      .bindPopup('<b>'+esc(p.n)+'</b><br><span style="color:#6D8091;font-size:11.5px">'+esc(p.s)+'</span><br>'+
+        '<button onclick="openPoint(\''+p.id+'\')" style="margin-top:7px;border:1px solid rgba(21,36,46,.3);'+
+        'border-radius:8px;padding:6px 11px;font-size:12px;background:#fff;cursor:pointer">Відкрити</button>');
+  });
+
+  const bounds=L.latLngBounds(cfg.points.map(p=>[p.lat,p.lon]));
+  if(cfg.legs&&cfg.legs.length){
+    const colors=['#1C5849','#A8542B','#2E7D6C','#B08417'];
+    cfg.legs.forEach((leg,i)=>{
+      const chain=leg.map(id=>[P(id).lat,P(id).lon]);
+      const line=L.polyline(chain,{color:colors[i%4],weight:3.4,opacity:.85,dashArray:'8 6'}).addTo(map);
+      bounds.extend(line.getBounds());
+      roadRoute(chain).then(geo=>{if(geo&&LMAP===map){line.setLatLngs(geo);line.setStyle({dashArray:null});
+        const n=document.getElementById('roadnote');if(n)n.textContent='по дорогах \u00B7 OSRM';}});
+    });
+  }
+  try{map.fitBounds(bounds.pad(.18))}catch(e){map.setView([49.84,24.03],8)}
+  setTimeout(()=>{try{map.invalidateSize()}catch(e){}},150);
+}
+
+async function roadRoute(chain){
+  try{
+    const s=chain.map(c=>c[1].toFixed(5)+','+c[0].toFixed(5)).join(';');
+    const r=await fetch('https://router.project-osrm.org/route/v1/driving/'+s+'?overview=full&geometries=geojson');
+    const j=await r.json();
+    if(j.routes&&j.routes[0])return j.routes[0].geometry.coordinates.map(c=>[c[1],c[0]]);
+  }catch(e){}
+  return null;
+}
+
+function fallbackSVG(cfg){
+  const la=cfg.points.map(p=>p.lat),lo=cfg.points.map(p=>p.lon);
+  const b={y0:Math.min.apply(null,la)-.08,y1:Math.max.apply(null,la)+.08,
+           x0:Math.min.apply(null,lo)-.08,x1:Math.max.apply(null,lo)+.08};
+  const X=l=>((l-b.x0)/(b.x1-b.x0||1)*520+20).toFixed(1),Y=l=>((b.y1-l)/(b.y1-b.y0||1)*250+20).toFixed(1);
+  const legs=(cfg.legs||[]).map(leg=>'<path d="'+leg.map((id,i)=>(i?'L':'M')+X(P(id).lon)+' '+Y(P(id).lat)).join(' ')+
+    '" fill="none" stroke="#A8542B" stroke-width="2" stroke-dasharray="7 5"/>').join('');
+  const pins=cfg.points.map(p=>'<g><circle cx="'+X(p.lon)+'" cy="'+Y(p.lat)+'" r="6" fill="'+
+    (S.visited[p.id]?'#1C5849':'#F2F1E9')+'" stroke="#15242E" stroke-width="1.6"/><text x="'+(+X(p.lon)+10)+
+    '" y="'+(+Y(p.lat)+4)+'" font-size="9.5" font-family="IBM Plex Mono,monospace" fill="#15242E">'+
+    esc(p.n.split(',')[0])+'</text></g>').join('');
+  return '<div class="alert" style="margin:0 0 10px">Онлайн-мапа недоступна в цьому середовищі — показано схему. '+
+    'У застосунку тут OpenStreetMap.</div><svg viewBox="0 0 560 290">'+legs+pins+'</svg>';
+}
+
+/* ═════════ ЕКРАНИ ═════════ */
+function stars(v,cls){let h='<div class="stars '+(cls||'')+'">';
+  for(let i=1;i<=5;i++)h+='<span class="star '+(i<=v?'on':'')+'"><svg viewBox="0 0 24 24">'+
+    '<path d="M12 2.6l2.9 6 6.5.9-4.7 4.6 1.1 6.5L12 17.5 6.2 20.6l1.1-6.5L2.6 9.5l6.5-.9z"/></svg></span>';
+  return h+'</div>';}
+function starPicker(cur){let h='<div class="stars" role="radiogroup" aria-label="Ваша оцінка">';
+  for(let i=1;i<=5;i++)h+='<button class="star '+(i<=cur?'on':'')+'" role="radio" aria-checked="'+(i===cur)+
+    '" aria-label="'+i+' з 5" onclick="pickStars('+i+')"><svg viewBox="0 0 24 24">'+
+    '<path d="M12 2.6l2.9 6 6.5.9-4.7 4.6 1.1 6.5L12 17.5 6.2 20.6l1.1-6.5L2.6 9.5l6.5-.9z"/></svg></button>';
+  return h+'</div>';}
+const stTag=st=>st==='ok'?'<span class="tag ok">доступно</span>'
+  :st==='warn'?'<span class="tag warn">обмежено</span>':'<span class="tag stop">закрито</span>';
+const mapBar=()=>'<div class="mapbar">'+Object.keys(TILES).map(k=>
+  '<button class="chip sm" aria-pressed="'+(V.tiles===k)+'" onclick="setTiles(\''+k+'\')">'+TILES[k].n+'</button>').join('')+
+  '<span class="meta" id="roadnote">прокладаю по дорогах…</span></div>';
+
+function scrMap(){
+  const list=V.theme==='all'?POINTS:POINTS.filter(p=>p.t.indexOf(V.theme)>-1);
+  const sorted=list.slice().sort((a,b)=>V.sort==='pop'?b.pop-a.pop:dist(P('rynok'),a)-dist(P('rynok'),b));
+  MOUNT={points:list};
+  return '<div><div class="alert"><b>Повітряна тривога у Львівській обл.: немає.</b><br>'+
+    'Оновлено 17.08.2026, 09:14. У робочій версії — автоматично через офіційне API тривог.</div>'+
+    '<div class="chips" role="group" aria-label="Тема">'+
+    '<button class="chip" aria-pressed="'+(V.theme==='all')+'" onclick="setTheme(\'all\')">Усі теми</button>'+
+    Object.keys(THEMES).map(k=>'<button class="chip" aria-pressed="'+(V.theme===k)+
+      '" onclick="setTheme(\''+k+'\')">'+THEMES[k]+'</button>').join('')+'</div>'+
+    '<div id="lmap" class="lmap"></div>'+mapBar()+
+    '<div class="between" style="margin:14px 0 10px"><span class="eyebrow">'+list.length+
+    ' точок \u00B7 '+Object.keys(S.visited).length+' відвідано</span>'+
+    '<button class="btn-sm" onclick="toggleSort()">'+(V.sort==='pop'?'Найпопулярніші':'Найближчі')+' \u21C5</button></div>'+
+    sorted.map(p=>{const d=Math.round(dist(P('rynok'),p)),my=S.ratings[p.id];
+      return '<div class="card" onclick="openPoint(\''+p.id+'\')">'+
+      '<div class="between"><h3>'+esc(p.n)+'</h3>'+stTag(p.st)+'</div>'+
+      '<p class="lede" style="margin:7px 0 9px">'+esc(p.s)+'</p>'+
+      '<div class="between"><div class="row">'+stars(Math.round(my||p.rate),'sm')+
+      '<span class="meta">'+(my||p.rate).toFixed(1)+(my?' \u00B7 ваша':'')+'</span></div>'+
+      '<span class="meta">'+d+' км від Львова</span></div>'+
+      (S.visited[p.id]?'<div style="margin-top:10px"><span class="stamp">Відвідано \u00B7 '+stamp(S.visited[p.id])+'</span></div>':'')+
+      '</div>'}).join('')+'</div>';
+}
+
+function scrRoutes(){
+  let list=ROUTES.filter(r=>V.size==='all'||r.size===V.size);
+  if(V.theme!=='all')list=list.filter(r=>flat(r).some(id=>P(id).t.indexOf(V.theme)>-1));
+  return '<div><div class="chips" role="group" aria-label="Довжина маршруту">'+
+    '<button class="chip" aria-pressed="'+(V.size==='all')+'" onclick="setSize(\'all\')">Усі</button>'+
+    Object.keys(SIZES).map(k=>'<button class="chip" aria-pressed="'+(V.size===k)+'" onclick="setSize(\''+k+
+      '\')">'+SIZES[k].n+' \u00B7 '+SIZES[k].d+'</button>').join('')+'</div>'+
+    '<p class="lede" style="margin:12px 0 14px">Маршрути будуються від Львова. Багатоденні розбиті на дні '+
+    'з поверненням до бази щовечора.</p>'+
+    (list.map(r=>{const s=routeStats(r),fin=S.done.indexOf(r.id)>-1;
+      return '<div class="card" onclick="openRoute(\''+r.id+'\')">'+
+      '<div class="between"><h3>'+esc(r.n)+'</h3><span class="tag size">'+SIZES[r.size].d+'</span></div>'+
+      '<p class="lede" style="margin:7px 0 10px">'+esc(r.why)+'</p>'+
+      '<div class="row" style="gap:13px;flex-wrap:wrap"><span class="meta">'+s.stops+' точок</span>'+
+      '<span class="meta">'+s.km+' км</span><span class="meta">'+hhmm(s.min)+'</span>'+
+      (fin?'<span class="tag ok">пройдено</span>':s.warn?'<span class="tag warn">є обмеження</span>':'')+
+      '</div></div>'}).join('')||'<p class="lede">За цим фільтром маршрутів немає.</p>')+'</div>';
+}
+
+function scrRoute(){
+  const r=ROUTES.find(x=>x.id===V.route),s=routeStats(r);
+  MOUNT={points:flat(r).map(P),legs:r.days.map(d=>[r.from].concat(d,[r.from]))};
+  return '<div><div id="lmap" class="lmap tall"></div>'+mapBar()+
+    '<div class="grid3" style="margin:14px 0">'+
+    '<div class="stat"><b>'+s.km+'</b><span>кілометрів</span></div>'+
+    '<div class="stat"><b>'+s.days+'</b><span>'+(s.days===1?'день':'дні')+'</span></div>'+
+    '<div class="stat"><b>'+s.stops+'</b><span>зупинок</span></div></div>'+
+    '<span class="eyebrow">Що поруч на маршруті</span>'+
+    '<div class="row" style="gap:16px;margin:8px 0 4px"><span class="meta">'+s.near.shop+' магазинів</span>'+
+    '<span class="meta">'+s.near.stay+' ночівель</span><span class="meta">'+s.near.food+' закладів їжі</span></div>'+
+    r.days.map((d,di)=>'<div class="dayhead"><b>День '+(di+1)+'</b><span class="meta">'+dayKm(r,d)+
+      ' км \u00B7 '+d.length+' зупинок</span></div><ul class="stops">'+
+      d.map((id,i)=>{const p=P(id);return '<li><div class="dotcol"><span class="dot '+
+        (S.visited[id]?'done':'')+'"></span>'+(i<d.length-1?'<span class="stem"></span>':'')+'</div>'+
+        '<div style="flex:1"><div class="between"><b style="font-size:13.5px">'+esc(p.n)+'</b>'+stTag(p.st)+'</div>'+
+        '<p class="lede" style="margin:4px 0 0;font-size:12.5px">'+esc(p.note)+'</p></div></li>'}).join('')+
+      '</ul>').join('')+
+    '<div class="rule"></div>'+
+    '<button class="btn ghost" style="margin-bottom:10px" onclick="offline(this)">Завантажити для офлайну</button>'+
+    '<button class="btn go" onclick="startJourney()">В подорож</button>'+
+    '<p class="meta" style="text-align:center;margin:10px 0 0">Дані про точки оновлено 12.08.2026</p></div>';
+}
+
+function scrJourney(){
+  const r=ROUTES.find(x=>x.id===V.route),st=flat(r),cur=P(st[V.idx]);
+  const d=dayOf(r,V.idx),prev=V.idx===0?P(r.from):P(st[V.idx-1]),km=Math.round(dist(prev,cur));
+  MOUNT={points:st.map(P),legs:[[r.from].concat(r.days[d],[r.from])],now:cur.id};
+  return '<div><div id="lmap" class="lmap"></div>'+mapBar()+
+    '<div class="card" style="margin-top:12px"><span class="eyebrow">День '+(d+1)+' з '+r.days.length+
+    ' \u00B7 зупинка '+(V.idx+1)+' з '+st.length+'</span>'+
+    '<h2 style="font-size:19px;margin:8px 0 6px">'+esc(cur.n)+'</h2>'+
+    '<div class="row" style="gap:14px"><span class="meta">'+km+' км</span>'+
+    '<span class="meta">~'+Math.round(km/52*60)+' хв</span>'+stTag(cur.st)+'</div></div>'+
+    '<p class="lede" style="font-size:12.5px">У робочій версії картка відкриється автоматично, щойно ви '+
+    'в\u2019їдете в радіус точки. Тут — вручну.</p>'+
+    '<button class="btn go" onclick="arrive()">Я на місці</button>'+
+    '<button class="btn ghost" style="margin-top:8px" onclick="go(\'routes\')">Перервати подорож</button></div>';
+}
+
+function scrPoint(){
+  const p=P(V.sel),my=S.ratings[p.id];
+  const r=V.route?ROUTES.find(x=>x.id===V.route):null;
+  const inJ=r&&flat(r)[V.idx]===p.id;
+  return '<div><div class="plate">'+(V.media==='photo'?photoSVG(p):reconSVG())+
+    '<div class="switch"><button aria-pressed="'+(V.media==='photo')+'" onclick="setMedia(\'photo\')">Фото сьогодні</button>'+
+    '<button aria-pressed="'+(V.media==='recon')+'" onclick="setMedia(\'recon\')">Реконструкція</button></div></div>'+
+    '<div class="between" style="margin:14px 0 8px"><h2 style="font-size:19px">'+esc(p.n)+'</h2>'+stTag(p.st)+'</div>'+
+    '<div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:12px">'+
+    p.t.map(t=>'<span class="tag">'+THEMES[t]+'</span>').join('')+'</div>'+
+    '<p class="lede" id="desc">'+esc(p.s)+'</p>'+
+    '<button class="btn-sm" style="margin-top:8px" id="more" onclick="expand(\''+p.id+'\')">Читати повністю</button>'+
+    (S.visited[p.id]?'<div style="margin:16px 0"><span class="stamp">Відвідано \u00B7 '+stamp(S.visited[p.id])+'</span></div>':'')+
+    '<div class="rule"></div><span class="eyebrow">Оцінка пам\u2019ятки</span>'+
+    '<div class="row" style="margin:9px 0 12px">'+stars(Math.round(p.rate),'sm')+
+    '<span class="meta">'+p.rate.toFixed(1)+' \u00B7 '+p.cnt+' оцінок</span></div>'+
+    '<div class="card" style="background:rgba(46,125,108,.05)">'+
+    '<span class="eyebrow">'+(my?'Ваша оцінка':'Оцініть від 1 до 5')+'</span>'+
+    '<div style="margin:9px 0 11px">'+starPicker(V.draftStars||my||0)+'</div>'+
+    '<textarea class="field" id="rev" rows="2" placeholder="Кілька слів для інших мандрівників — не обов\u2019язково">'+
+    esc(S.ratings[p.id+':txt']||'')+'</textarea>'+
+    '<button class="btn-sm" style="margin-top:9px;width:100%" onclick="saveReview(\''+p.id+'\')"'+
+    (!(V.draftStars||my)?' disabled':'')+'>'+(my?'Оновити відгук':'Залишити відгук')+'</button>'+
+    '<p class="meta" style="margin:9px 0 0">Оцінку можна залишити лише з місця — це захищає рейтинг від накрутки.</p></div>'+
+    '<div class="locked" style="margin-top:12px"><span style="font-size:19px;opacity:.4">\u266A</span>'+
+    '<div><b style="font-size:12.5px">Аудіорозповідь, 14 хв</b>'+
+    '<p class="meta" style="margin:3px 0 0">Доступно у платній версії</p></div></div>'+
+    '<div class="rule"></div><div class="between"><span class="meta">Дані оновлено '+p.upd+'</span>'+
+    '<button class="btn-sm" onclick="report()">Повідомити про проблему</button></div>'+
+    (inJ?'<button class="btn go" style="margin-top:16px" onclick="continueJourney()">Продовжити подорож</button>'
+        :'<button class="btn ghost" style="margin-top:16px" onclick="go(\'map\')">Назад до карти</button>')+'</div>';
+}
+
+function scrFinish(){
+  const r=ROUTES.find(x=>x.id===V.route),s=routeStats(r);
+  const mins=Math.max(1,Math.round((Date.now()-V.t0)/60000)),fresh=V.fresh||[];
+  MOUNT={points:flat(r).map(P),legs:r.days.map(d=>[r.from].concat(d,[r.from]))};
+  return '<div style="text-align:center">'+
+    '<div style="font-size:34px;margin:10px 0 4px;color:var(--verd-dk)">\u25C6</div>'+
+    '<h2 style="font-size:22px">Вітаємо, ви завершили подорож</h2>'+
+    '<p class="lede" style="margin:8px 0 14px">'+esc(r.n)+' \u00B7 '+SIZES[r.size].d+'</p>'+
+    '<div id="lmap" class="lmap"></div>'+
+    '<div class="grid3" style="margin:14px 0"><div class="stat"><b>'+s.stops+'</b><span>точок</span></div>'+
+    '<div class="stat"><b>'+s.km+'</b><span>км треку</span></div>'+
+    '<div class="stat"><b>'+hhmm(mins)+'</b><span>у подорожі</span></div></div>'+
+    (fresh.length?'<span class="eyebrow">Нові нагороди</span><div class="grid3" style="margin:9px 0 16px">'+
+      fresh.map(id=>{const b=BADGES.find(x=>x.id===id);
+        return '<div class="badge got"><div class="g">'+b.g+'</div><div class="n">'+b.n+'</div></div>'}).join('')+'</div>':'')+
+    '<button class="btn" onclick="go(\'profile\')">До мандрівного листа</button>'+
+    '<button class="btn ghost" style="margin-top:8px" onclick="go(\'routes\')">Обрати новий маршрут</button></div>';
+}
+
+function scrProfile(){
+  const vis=Object.keys(S.visited).map(k=>[k,S.visited[k]]).sort((a,b)=>b[1]-a[1]);
+  const rated=Object.keys(S.ratings).filter(k=>k.indexOf(':')<0).length;
+  return '<div><div class="grid3" style="margin-bottom:16px">'+
+    '<div class="stat"><b>'+vis.length+'</b><span>з '+POINTS.length+' точок</span></div>'+
+    '<div class="stat"><b>'+S.done.length+'</b><span>маршрутів</span></div>'+
+    '<div class="stat"><b>'+rated+'</b><span>оцінок</span></div></div>'+
+    '<span class="eyebrow">Нагороди \u00B7 '+S.badges.length+' з 50</span>'+
+    '<p class="meta" style="margin:5px 0 10px">У прототипі реалізовано 10</p>'+
+    '<div class="grid3" style="margin-bottom:18px">'+BADGES.map(b=>'<div class="badge '+
+      (S.badges.indexOf(b.id)>-1?'got':'')+'"><div class="g">'+b.g+'</div><div class="n">'+b.n+
+      '</div><div class="d">'+b.d+'</div></div>').join('')+'</div>'+
+    '<span class="eyebrow">Штампи відвідин</span>'+
+    (vis.length?'<div style="margin-top:10px">'+vis.map(v=>{const p=P(v[0]),my=S.ratings[v[0]];
+      return '<div class="card" onclick="openPoint(\''+v[0]+'\')"><div class="between">'+
+      '<b style="font-size:13.5px">'+esc(p.n)+'</b>'+
+      (my?'<div class="row">'+stars(my,'sm')+'</div>':'<span class="meta">без оцінки</span>')+'</div>'+
+      '<div style="margin-top:9px"><span class="stamp">'+stamp(v[1])+'</span></div>'+
+      (S.ratings[v[0]+':txt']?'<p class="lede" style="margin:9px 0 0;font-size:12.5px">«'+
+        esc(S.ratings[v[0]+':txt'])+'»</p>':'')+'</div>'}).join('')+'</div>'
+      :'<p class="lede" style="margin-top:8px">Порожньо. Оберіть маршрут — і перший штамп з\u2019явиться тут.</p>')+
+    '<div class="rule"></div><button class="btn-sm" style="width:100%" onclick="reset()">Очистити прогрес</button></div>';
+}
+
+/* ═════════ ЗАГЛУШКИ ЗОБРАЖЕНЬ ═════════ */
+function photoSVG(p){return '<svg viewBox="0 0 400 230"><rect width="400" height="230" fill="#CFCEC2"/>'+
+  '<path d="M0 175 L60 150 L120 168 L190 128 L260 158 L330 138 L400 162 L400 230 L0 230 Z" fill="#B8B7A9"/>'+
+  '<rect x="150" y="88" width="100" height="80" fill="#A3A295"/>'+
+  '<rect x="138" y="70" width="24" height="98" fill="#96958A"/>'+
+  '<rect x="238" y="70" width="24" height="98" fill="#96958A"/>'+
+  '<rect x="192" y="122" width="16" height="46" fill="#7E7D74"/>'+
+  '<circle cx="322" cy="52" r="18" fill="#DEDDD1" opacity=".8"/>'+
+  '<text x="200" y="212" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="10" '+
+  'fill="#5C5B52" letter-spacing="1.5">ФОТО \u00B7 '+esc(p.n.split(',')[0].toUpperCase())+'</text></svg>'}
+function reconSVG(){return '<svg viewBox="0 0 400 230"><rect width="400" height="230" fill="#DDE3E0"/>'+
+  '<g stroke="#2E7D6C" stroke-width="1" opacity=".28">'+
+  [1,2,3,4,5,6,7].map(i=>'<line x1="'+i*50+'" y1="0" x2="'+i*50+'" y2="230"/>').join('')+
+  [1,2,3,4].map(i=>'<line x1="0" y1="'+i*46+'" x2="400" y2="'+i*46+'"/>').join('')+'</g>'+
+  '<g fill="none" stroke="#1C5849" stroke-width="1.9" stroke-linejoin="round">'+
+  '<path d="M138 168 L138 62 L162 62 L162 168"/><path d="M238 168 L238 62 L262 62 L262 168"/>'+
+  '<path d="M162 88 L238 88 L238 168 L162 168 Z"/><path d="M132 62 L150 40 L168 62"/>'+
+  '<path d="M232 62 L250 40 L268 62"/><path d="M162 88 L200 66 L238 88"/>'+
+  '<path d="M192 122 L192 168 M208 122 L208 168 M192 122 Q200 112 208 122"/>'+
+  '<path d="M60 172 L340 172" stroke-dasharray="6 4" opacity=".65"/></g>'+
+  '<text x="200" y="206" text-anchor="middle" font-family="IBM Plex Mono,monospace" font-size="10" '+
+  'fill="#1C5849" letter-spacing="1.5">РЕКОНСТРУКЦІЯ \u00B7 ІМОВІРНИЙ ВИГЛЯД</text></svg>'}
+
+/* ═════════ ДІЇ ═════════ */
+function setTheme(t){V.theme=t;render()}
+function setSize(s){V.size=s;render()}
+function setTiles(t){V.tiles=t;render()}
+function toggleSort(){V.sort=V.sort==='pop'?'near':'pop';render()}
+function openRoute(id){V.route=id;go('route')}
+function openPoint(id){V.sel=id;V.media='photo';V.draftStars=0;go('point')}
+function setMedia(m){V.media=m;render()}
+function expand(id){document.getElementById('desc').textContent=P(id).f;
+  const m=document.getElementById('more');if(m)m.remove()}
+function offline(b){b.textContent='Завантажено \u00B7 карта і тексти';b.disabled=true}
+function report(){alert('Що не так із точкою?\n\n\u2022 закрито / змінився графік\n\u2022 небезпечно, пошкоджено\n\u2022 помилка в описі\n\nУ робочій версії — черга модерації.')}
+function go(s){V.screen=s;render();const b=document.querySelector('.body');if(b)b.scrollTop=0}
+function startJourney(){V.idx=0;V.t0=Date.now();go('journey')}
+function arrive(){const r=ROUTES.find(x=>x.id===V.route),id=flat(r)[V.idx];
+  if(!S.visited[id])S.visited[id]=Date.now();save();checkBadges();openPoint(id);}
+function continueJourney(){const r=ROUTES.find(x=>x.id===V.route);
+  if(V.idx<flat(r).length-1){V.idx++;go('journey');}
+  else{if(S.done.indexOf(r.id)<0)S.done.push(r.id);V.fresh=checkBadges();save();go('finish');}}
+function pickStars(n){V.draftStars=n;render()}
+function saveReview(id){const n=V.draftStars||S.ratings[id];if(!n)return;
+  S.ratings[id]=n;const t=document.getElementById('rev');
+  if(t&&t.value.trim())S.ratings[id+':txt']=t.value.trim();else delete S.ratings[id+':txt'];
+  V.draftStars=0;save();V.fresh=checkBadges();render();}
+function reset(){if(confirm('Очистити всі штампи, оцінки й нагороди?')){
+  S={visited:{},ratings:{},done:[],badges:[]};save();render();}}
+
+function checkBadges(){const v=Object.keys(S.visited),fresh=[];
+  const add=id=>{if(S.badges.indexOf(id)<0){S.badges.push(id);fresh.push(id);}};
+  if(v.length>=1)add('first'); if(v.length>=5)add('five');
+  if(['olesko','pidhirtsi','zolochiv'].every(x=>v.indexOf(x)>-1))add('horseshoe');
+  if(v.filter(x=>P(x).t.indexOf('ruin')>-1).length>=3)add('ruin');
+  if(Object.keys(S.ratings).filter(k=>k.indexOf(':')<0).length>=5)add('critic');
+  if(['potelych','drohobych'].every(x=>v.indexOf(x)>-1))add('unesco');
+  if(S.done.length>=1)add('route1');
+  if(v.indexOf('tustan')>-1)add('rock');
+  if(S.done.some(id=>ROUTES.find(r=>r.id===id).size==='l'))add('long');
+  if(v.length>=POINTS.length)add('all');
+  save();return fresh;}
+
+/* ═════════ РЕНДЕР ═════════ */
+const TITLES={map:['Спадок','Львівщина \u00B7 MVP'],routes:['Маршрути','короткі \u00B7 середні \u00B7 великі'],
+  route:['Маршрут',''],journey:['У дорозі',''],point:['Пам\u2019ятка',''],
+  finish:['Подорож завершено',''],profile:['Мандрівний лист','']};
+
+function render(){
+  const T=TITLES[V.screen];
+  const back={route:'routes',journey:'route',point:V.route?'journey':'map',finish:null}[V.screen];
+  document.getElementById('bar').innerHTML=
+    (back?'<button class="back" onclick="go(\''+back+'\')" aria-label="Назад"><svg width="15" height="15" '+
+      'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>':'')+
+    '<div><h1>'+T[0]+'</h1>'+(T[1]?'<div class="sub">'+T[1]+'</div>':'')+'</div>';
+  if(LMAP){try{LMAP.remove()}catch(e){}LMAP=null;}
+  document.getElementById('body').innerHTML=
+    V.screen==='map'?scrMap():V.screen==='routes'?scrRoutes():V.screen==='route'?scrRoute():
+    V.screen==='journey'?scrJourney():V.screen==='point'?scrPoint():
+    V.screen==='finish'?scrFinish():scrProfile();
+  const items=[['map','Карта','M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z'],
+    ['routes','Маршрути','M4 19h6a4 4 0 000-8H9a4 4 0 010-8h11'],
+    ['journey','Подорож','M12 21s7-6.4 7-11a7 7 0 10-14 0c0 4.6 7 11 7 11z'],
+    ['profile','Лист','M6 3h9l4 4v14H6z M9 12h7 M9 16h5']];
+  document.getElementById('nav').innerHTML=items.map(it=>{
+    const dis=it[0]==='journey'&&!V.route;
+    return '<button aria-current="'+(V.screen===it[0])+'"'+(dis?' disabled style="opacity:.35"':'')+
+      ' onclick="'+(dis?'':'go(\''+it[0]+'\')')+'"><svg width="17" height="17" viewBox="0 0 24 24"><path d="'+
+      it[2]+'"/></svg>'+it[1]+'</button>'}).join('');
+  mountMap();
+}
+load().then(render);
+</script>
