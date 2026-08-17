@@ -1,0 +1,104 @@
+name: APK
+
+# Збирає Android-застосунок і кладе готовий APK у Releases.
+#
+# Чому збірка тут, а не локально: Android SDK важить кілька гігабайт
+# і в частині середовищ dl.google.com недоступний. На раннерах GitHub
+# SDK уже встановлений, тому збірка виходить швидшою й повторюваною.
+#
+# Папки android/ у репозиторії немає свідомо: її генерує Capacitor
+# командою `cap add android`, а наші правки вносить scripts/patch-android.mjs.
+# Так у git не лежить кілька сотень згенерованих файлів.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'legacy/**'
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Створити реліз із цим APK'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Без cache: npm — lock-файла в репозиторії ще немає, а з ним
+      # цей крок падає з «Dependencies lock file is not found».
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Залежності
+        run: npm install --no-audit --no-fund
+
+      - name: Покласти Leaflet у www/vendor
+        run: npm run vendor
+
+      - name: Створити Android-проєкт
+        run: npx cap add android
+
+      - name: Дозволи, назва, іконки, версія
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: node scripts/patch-android.mjs
+
+      - name: Синхронізувати вебчастину
+        run: npx cap sync android
+
+      - name: Збірка debug APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Перейменувати артефакт
+        id: name
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          NAME="spadok-${VERSION}-build${{ github.run_number }}-debug.apk"
+          cp android/app/build/outputs/apk/debug/app-debug.apk "$NAME"
+          echo "apk=$NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          ls -lh "$NAME"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spadok-apk
+          path: ${{ steps.name.outputs.apk }}
+          retention-days: 30
+
+      - name: Реліз
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.name.outputs.version }}-build${{ github.run_number }}
+          name: Спадок ${{ steps.name.outputs.version }} · збірка ${{ github.run_number }}
+          files: ${{ steps.name.outputs.apk }}
+          body: |
+            Debug-збірка для встановлення на телефон.
+
+            **Встановлення:** завантажте APK на Android, відкрийте його
+            й дозвольте встановлення з цього джерела. Під час першого
+            запуску застосунок попросить доступ до місця — він потрібен,
+            щоб зараховувати відвідини пам'яток.
+
+            Це debug-підпис: для Google Play потрібен release-підпис
+            власним ключем.
