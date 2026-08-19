@@ -5,6 +5,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
+import { SHELL_FILES, STAMP, fingerprint, readVersion } from './version.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const www = join(root, 'www');
@@ -257,7 +258,7 @@ else ok('атрибуція карти нізвідки не вимикаєть�
 
 /* Головний екран майже цілком тримається на CSS: без правил шторка
    не буде шторкою, а карта не займе екран. */
-['mapview', 'msheet', 'mgrab', 'mtabs', 'mlist', 'locme']
+['mapview', 'msheet', 'mgrab', 'mtabs', 'mlist', 'locme', 'mkchip', 'mkav']
   .forEach(c => css.includes('.' + c) ? null : bad('немає стилю .' + c + ' — головний екран розсиплеться'));
 if (!/body\.mapv/.test(css)) bad('немає правил body.mapv — карта не займе екран');
 else ok('головний екран має свої стилі');
@@ -279,6 +280,69 @@ if (D) {
     ? ok('порядок «Оборонної дуги» позначений як сюжетний')
     : bad('«Оборонна дуга» втратила ord:true — її хронологію переставить перший же старт');
 }
+
+/* ── 8. Версія релізу ────────────────────────────────────────────────
+   Найдорожчий баг цього проєкту не був помітний зсередини: VERSION
+   у sw.js лишалась 'v1' сім релізів поспіль. Автор бачив зміни завжди,
+   бо відкривав з диска; усі інші сиділи на оболонці з кешу й не мали
+   способу дізнатися, що вона стара. Тому перевірка тут груба: змінили
+   оболонку — підніміть версію, інакше збірки не буде. */
+const sw = readFileSync(join(www, 'sw.js'), 'utf8');
+
+if (!existsSync(STAMP)) {
+  bad('немає release.json — запустіть node scripts/release.mjs');
+} else {
+  const stamp = JSON.parse(readFileSync(STAMP, 'utf8'));
+  const seen = {
+    'package.json': readVersion('package.json'),
+    'www/sw.js': readVersion('www/sw.js'),
+    'www/js/data.js': readVersion('www/js/data.js'),
+    'release.json': stamp.version
+  };
+  const uniq = [...new Set(Object.values(seen))];
+
+  if (uniq.length !== 1 || !uniq[0])
+    bad('версія розійшлася по файлах: ' +
+      Object.entries(seen).map(([k, v]) => k + '=' + v).join(', ') +
+      '. Лікується: node scripts/release.mjs');
+  else if (!/^\d+\.\d+\.\d+$/.test(uniq[0]))
+    bad('версія має вигляд major.minor.patch, а не «' + uniq[0] + '»');
+  else
+    ok('версія ' + uniq[0] + ' однакова в package.json, sw.js, data.js і release.json');
+
+  const fp = fingerprint();
+  if (fp.digest !== stamp.digest) {
+    const changed = SHELL_FILES.filter(f => fp.files[f] !== (stamp.files || {})[f]);
+    bad('оболонка змінилася, а версія — ні (' + seen['package.json'] + '). ' +
+      'Люди, які вже відкривали застосунок, лишаться на старій.\n' +
+      '      Змінилося: ' + (changed.join(', ') || 'склад файлів') + '\n' +
+      '      Лікується: node scripts/release.mjs');
+  } else ok('відбиток оболонки збігається з випущеною версією');
+}
+
+/* Кеш плиток не має права залежати від версії застосунку: людина
+   викачує область для офлайну свідомо, часом через мобільний інтернет
+   у дорозі, і черговий реліз не сміє стерти ці мегабайти. */
+if (/spadok-tiles-'\s*\+\s*VERSION\b/.test(sw))
+  bad('кеш плиток привʼязаний до версії застосунку — реліз зітре людям викачану карту');
+else ok('викачана офлайн-карта переживає реліз');
+
+/* caches.keys() на GitHub Pages повертає й кеші сусідніх проєктів
+   того самого акаунта: origin у них спільний. */
+if (!/indexOf\('spadok-'\)\s*===?\s*0|startsWith\('spadok-'\)/.test(sw))
+  bad('чистка кешів не обмежена префіксом spadok- — зітремо чужі проєкти на тому ж домені');
+else ok('чистка кешів чіпає тільки свої');
+
+/* Банер «є нова версія» має вмикатись від оновлення, а не від першого
+   встановлення, і тільки коли нова оболонка вже докачалась. */
+const regBlock = (appCode.match(/'serviceWorker' in navigator[\s\S]{0,1200}/) || [''])[0];
+if (!/swUpdate = true/.test(regBlock))
+  bad('банер оновлення ніде не вмикається — нову версію ніхто не помітить');
+else if (!/controller/.test(regBlock))
+  bad('updatefound без перевірки контролера — банер вискочить на першому ж встановленні');
+else if (!/'installed'/.test(regBlock))
+  bad('банер зʼявляється до того, як нова версія докачалась — кнопка «Оновити» нічого не дасть');
+else ok('банер оновлення відрізняє встановлення від оновлення');
 
 console.log(fails ? `\n${fails} проблем.` : '\nУсе сходиться.');
 process.exit(fails ? 1 : 0);

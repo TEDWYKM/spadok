@@ -570,8 +570,10 @@ async function mountMap() {
   MARKS = L.layerGroup().addTo(map);
   drawMarks(map, cfg);
   /* Кластери живуть тільки на головній карті: на екрані маршруту
-     треба бачити кожну зупинку, скільки б їх не тулилось поруч. */
-  if (cfg.full) map.on('zoomend', () => { if (LMAP === map) drawMarks(map, cfg); });
+     треба бачити кожну зупинку, скільки б їх не тулилось поруч.
+     А ось перемальовувати на зумі треба скрізь, крім дорожнього
+     режиму: від зуму залежить і скупчення, і поява аватарів. */
+  if (!cfg.nav) map.on('zoomend', () => { if (LMAP === map) drawMarks(map, cfg); });
 
   const bounds = L.latLngBounds(cfg.points.map(p => [p.lat, p.lon]));
 
@@ -634,6 +636,34 @@ function markColor(p) {
   return (KIND_COLOR[p.kind] || KIND_COLOR.city)[key];
 }
 
+/* Мініатюра типу обʼєкта. Це слот під справжнє фото: коли воно
+   зʼявиться, сюди стане <img>, а поки силует бодай каже, замок це
+   чи церква. Заглушка photoSVG() для цього не годиться — вона
+   однакова для всіх точок і як аватар не розрізняє нічого. */
+const KIND_GLYPH = {
+  /* Форми навмисно грубі: на 16 пікселях тонка деталь зникає. Перша
+     спроба провалилась саме тут — руїни й міста виходили двома
+     однаковими стовпчиками, а хрест над банею був товщиною в піксель.
+     Тому місто отримало дах, руїни — нерівні уламки, баня — великий хрест. */
+  castle: 'M3.5 21V5h2.4v3h2.4V5h2.4v3h2.4V5h2.4v16z',
+  ruin:   'M3 21v-9.5l3.4.9V21zm5.6 0v-6l3.6-1.3V21zm5.8 0V9.6l4.6 1.5V21z',
+  sacral: 'M10.7 1.6h2.6v2.5h2.5v2.6h-2.5v2.4h-2.6V6.7H8.2V4.1h2.5zM6 21v-6.2a6 6 0 0112 0V21z',
+  city:   'M2.5 21v-7.2l4.6-3.6 4.6 3.6V21zm11.2 0V9.8h7.3V21z',
+  rock:   'M1.8 21l6.2-11.4 3.6 5.8L15.8 7.4 22.2 21z'
+};
+
+function avatarSVG(p) {
+  const d = KIND_GLYPH[p.kind] || KIND_GLYPH.city;
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + d + '"/></svg>';
+}
+
+/* Аватари зʼявляються тільки тоді, коли скупчення вже розпалися:
+   інакше десяток карток накриють одна одну й саму карту. У дорожньому
+   режимі їх немає взагалі — за кермом кожна зайва деталь на екрані
+   це погляд, відірваний від дороги. */
+const AVATAR_ZOOM = 13;
+const avatarsAt = (zoom, nav) => !nav && zoom >= AVATAR_ZOOM;
+
 /* Скупчення розводимо по сітці в ПІКСЕЛЯХ поточного зуму, а не в
    градусах: на карті злипаються ті точки, що близькі на екрані,
    а не ті, що близькі на глобусі. Тому з наближенням купа сама
@@ -654,6 +684,7 @@ function drawMarks(map, cfg) {
   if (!MARKS || !window.L) return;
   MARKS.clearLayers();
   const groups = cfg.full ? clusterize(map, cfg.points, 58) : cfg.points.map(p => [p]);
+  const avatars = avatarsAt(map.getZoom(), cfg.nav);
 
   groups.forEach(g => {
     if (g.length > 1) {
@@ -682,11 +713,17 @@ function drawMarks(map, cfg) {
 
     const p = g[0];
     const on = !!S.visits[p.id], now = cfg.now === p.id;
+    const my = S.ratings[p.id];
+    const rate = my ? my.stars : p.rate;
+    const chip = avatars
+      ? '<span class="mkchip"><span class="mkav">' + avatarSVG(p) + '</span>' +
+        '<b>' + rate.toFixed(1).replace('.', ',') + '</b></span>'
+      : '';
     L.marker([p.lat, p.lon], {
       icon: L.divIcon({
         className: '',
         html: '<div class="mk ' + (now ? 'now' : on ? 'on' : '') +
-          '" style="--c:' + markColor(p) + '"><i></i></div>',
+          '" style="--c:' + markColor(p) + '">' + chip + '<i></i></div>',
         iconSize: [24, 24], iconAnchor: [12, 12]
       }),
       title: p.n
@@ -1745,7 +1782,12 @@ function scrProfile() {
     'протухлою — старша за ' + STATUS_STALE_DAYS + '.</p>' +
     '<p class="meta" style="margin:5px 0 0">Прогрес: ' +
     (Store.kind === 'local' ? 'зберігається на пристрої' : 'лише в пам’яті сесії') + '</p></div>' +
-    '<button class="btn-sm" style="width:100%;margin-top:10px" data-act="reset">Очистити прогрес</button></div>';
+    '<button class="btn-sm" style="width:100%;margin-top:10px" data-act="reset">Очистити прогрес</button>' +
+    /* Версія тут не для краси: коли людина каже «я не бачу змін»,
+       це перше, що треба спитати, — і воно має бути на екрані,
+       а не в здогадках. Це ж число і в назві кешу оболонки. */
+    '<p class="meta" style="text-align:center;margin:14px 0 0">Спадок · версія ' +
+    APP_VERSION + '</p></div>';
 }
 
 /* ═════════ ЗАГЛУШКИ ЗОБРАЖЕНЬ ═════════
@@ -2435,8 +2477,23 @@ function boot() {
   render();
 
   if ('serviceWorker' in navigator) {
+    /* На першому візиті updatefound теж спрацьовує — але це встановлення,
+       а не оновлення, і банер «є нова версія» тоді бреше в очі. Відрізняє
+       їх наявність контролера: якщо сторінкою вже хтось керує, значить
+       стара версія тут була. */
+    const had = !!navigator.serviceWorker.controller;
     navigator.serviceWorker.register('sw.js').then(reg => {
-      reg.addEventListener('updatefound', () => { V.swUpdate = true; });
+      reg.addEventListener('updatefound', () => {
+        const w = reg.installing;
+        if (!had || !w) return;
+        /* Чекаємо 'installed': до цього моменту нова оболонка ще
+           качається, і кнопка «Оновити» просто перезавантажила б стару. */
+        w.addEventListener('statechange', () => {
+          if (w.state !== 'installed' || V.swUpdate) return;
+          V.swUpdate = true;
+          render();
+        });
+      });
     }).catch(() => { /* офлайн просто не увімкнеться */ });
   }
 }

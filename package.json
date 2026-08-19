@@ -1,13 +1,16 @@
 {
   "name": "spadok",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
-  "description": "Спадок — застосунок історико-культурного туризму. MVP по Львівській області.",
+  "description": "Спадок — застосунок історико-культурного туризму. MVP: Львівщина і Київщина.",
   "license": "MIT",
   "scripts": {
     "vendor": "node scripts/vendor.mjs",
     "icons": "node scripts/icons.mjs",
     "serve": "node scripts/serve.mjs",
+    "release": "node scripts/release.mjs",
+    "check": "node scripts/check.mjs",
+    "e2e": "node scripts/e2e.mjs",
     "sync": "cap sync android",
     "apk": "cap sync android && cd android && ./gradlew assembleDebug"
   },

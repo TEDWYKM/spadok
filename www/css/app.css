@@ -417,3 +417,25 @@ body.mapv .body{padding:0;overflow:hidden;display:flex}
   border:1px solid var(--line-2);border-radius:var(--r-pill);font-size:12.5px;font-weight:600;
   background:transparent}
 .regsel svg{width:13px;height:13px;stroke:var(--ink-3);fill:none;stroke-width:2;stroke-linecap:round}
+
+/* Аватар із рейтингом над позначкою. Слот під справжнє фото: коли воно
+   зʼявиться, всередину .mkav стане <img> — решта не зміниться. */
+.mkchip{position:absolute;bottom:19px;left:50%;transform:translateX(-50%);
+  display:flex;align-items:center;gap:5px;padding:3px 7px 3px 3px;
+  background:var(--sheet);border-radius:var(--r-pill);white-space:nowrap;
+  box-shadow:0 1px 2px rgba(21,36,46,.2), 0 6px 14px -8px rgba(21,36,46,.6)}
+/* Хвостик до кружальця: без нього картка висить у повітрі й незрозуміло,
+   якої саме точки вона стосується. */
+.mkchip::after{content:"";position:absolute;bottom:-4px;left:50%;width:7px;height:7px;
+  background:var(--sheet);transform:translateX(-50%) rotate(45deg);border-radius:1px}
+.mkav{width:24px;height:24px;flex:none;border-radius:var(--r-pill);background:var(--c,#8B8B8B);
+  display:grid;place-items:center}
+.mkav svg{width:16px;height:16px;fill:#fff}
+.mkav img{width:100%;height:100%;border-radius:inherit;object-fit:cover;display:block}
+.mkchip b{font-family:"Unbounded",sans-serif;font-size:10.5px;color:var(--ink);line-height:1}
+/* Відвідана точка: рейтинг стає власним, і це має бути видно. */
+.mk.on .mkchip b{color:var(--verd-dk)}
+body.darkmap .mkchip,
+body.darkmap .mkchip::after{background:#141D22}
+body.darkmap .mkchip b{color:#EAF2F4}
+body.darkmap .mk.on .mkchip b{color:#3FD9B6}

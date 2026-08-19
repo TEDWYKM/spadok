@@ -10,10 +10,23 @@
        застарілий трек шкідливіший за відсутній.
    ═══════════════════════════════════════════════════════════════════ */
 
-const VERSION = 'v1';
+/* Версію переписує scripts/release.mjs — руками не правити.
+   Доки байти цього файлу не змінилися, браузер вважає service worker
+   тим самим і не переустановлює його, а той офлайн віддає стару
+   оболонку з кешу. Тому підняття версії — не косметика: це єдиний
+   сигнал, за яким пристрій дізнається, що застосунок оновився. */
+const VERSION = '0.4.0';
+
+/* Плитки карти версіонуються окремо і навмисно. Людина могла свідомо
+   викачати область для офлайну — десятки мегабайт через мобільний
+   інтернет десь у дорозі. Звичайний реліз застосунку не має права
+   це стерти. Ця версія міняється тільки тоді, коли міняється сам
+   тайл-сервер або схема адрес. */
+const TILES_VERSION = 'v1';
+
 const SHELL = 'spadok-shell-' + VERSION;
-const TILES = 'spadok-tiles-' + VERSION;
-const FONTS = 'spadok-fonts-' + VERSION;
+const TILES = 'spadok-tiles-' + TILES_VERSION;
+const FONTS = 'spadok-fonts-' + TILES_VERSION;
 
 /* Скільком плиткам дозволяємо жити в кеші. Львівщина на зумах 8–13
    в межі 700 плиток — це приблизно 20–30 МБ. */
@@ -47,7 +60,12 @@ self.addEventListener('activate', e => {
   e.waitUntil((async () => {
     const keep = [SHELL, TILES, FONTS];
     const names = await caches.keys();
-    await Promise.all(names.map(n => keep.indexOf(n) < 0 ? caches.delete(n) : null));
+    /* Тільки свої кеші. На GitHub Pages origin спільний для всіх
+       проєктів акаунта, і caches.keys() чесно повертає чужі теж —
+       стерти їх звідси було б хамством, яке важко відстежити. */
+    await Promise.all(names
+      .filter(n => n.indexOf('spadok-') === 0 && keep.indexOf(n) < 0)
+      .map(n => caches.delete(n)));
     await self.clients.claim();
   })());
 });

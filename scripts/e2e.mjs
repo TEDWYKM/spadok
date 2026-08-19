@@ -11,6 +11,7 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readVersion } from './version.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const shots = join(root, '.e2e');
@@ -696,6 +697,27 @@ marks.uniqueColors === marks.kinds && marks.perKind === marks.kinds
 marks.themed === marks.themeHex
   ? ok('під фільтром теми колір береться від теми')
   : bad('фільтр теми не міняє колір: ' + marks.themed + ' замість ' + marks.themeHex);
+/* Аватари з рейтингом: тільки на близькому зумі й ніколи в дорозі. */
+const av = await evaluate(`
+  const paths = Object.keys(KIND_GLYPH).map(k => KIND_GLYPH[k]);
+  return {
+    kinds: paths.length, unique: new Set(paths).size,
+    far: avatarsAt(9, false), near: avatarsAt(14, false),
+    edge: avatarsAt(AVATAR_ZOOM, false), road: avatarsAt(16, true),
+    svg: avatarSVG({ kind: 'sacral' }).includes(KIND_GLYPH.sacral)
+  };
+`);
+av.unique === av.kinds && av.kinds === 5
+  ? ok('кожен тип має власний силует, без повторів')
+  : bad('силуети повторюються: ' + JSON.stringify(av));
+!av.far && av.near && av.edge
+  ? ok('аватари зʼявляються з ' + '13' + '-го зуму, раніше — ні')
+  : bad('поріг зуму не працює: ' + JSON.stringify(av));
+!av.road
+  ? ok('у дорожньому режимі аватарів немає — екран лишається простим')
+  : bad('аватари лізуть у дорожній режим');
+av.svg ? ok('силует підставляється за типом точки') : bad('avatarSVG віддає не той силует');
+
 /* Легенда показує рівно ті типи, що є в поточній області. */
 const leg = await evaluate(`
   const shown = document.querySelectorAll('.legend span').length;
@@ -877,7 +899,42 @@ map.fallback || map.leaflet
   : bad('карта не показала ні себе, ні схему');
 await shot('10-map-offline');
 
-/* ── 14. Помилки в консолі ───────────────────────────────────────── */
+/* ── 14. Версія і кеші ───────────────────────────────────────────────
+   Найтихіший баг цього проєкту: оболонка оновилась, а пристрій цього
+   не помітив, бо version у sw.js не мінялась. Перевіряємо весь ланцюг
+   одразу — число в package.json, те саме число на екрані профілю
+   і те саме число в імені кешу, який service worker реально завів
+   у браузері. Розрив у будь-якій ланці означає застосунок-привид. */
+const shipped = readVersion('package.json');
+await click('[data-nav="profile"]');
+await sleep(400);
+
+const ver = await evaluate(`return {
+  inApp: typeof APP_VERSION === 'string' ? APP_VERSION : null,
+  onScreen: document.body.innerText.includes('версія ' + ${JSON.stringify(shipped)})
+}`);
+ver.inApp === shipped
+  ? ok('застосунок знає свою версію — ' + shipped)
+  : bad('APP_VERSION у застосунку «' + ver.inApp + '», у package.json «' + shipped + '»');
+ver.onScreen
+  ? ok('версія видно в профілі')
+  : bad('версії немає на екрані — на «чому не бачу змін» відповісти нічим');
+
+/* Кеш заводиться під час install, тож даємо йому дочекатись. */
+let cacheNames = [];
+for (let i = 0; i < 12; i++) {
+  cacheNames = await evaluate('return caches.keys()');
+  if (cacheNames.some(n => n.indexOf('spadok-shell-') === 0)) break;
+  await sleep(300);
+}
+cacheNames.includes('spadok-shell-' + shipped)
+  ? ok('service worker завів кеш оболонки під версію ' + shipped)
+  : bad('немає кешу spadok-shell-' + shipped, 'є: ' + (cacheNames.join(', ') || 'жодного'));
+cacheNames.includes('spadok-tiles-' + shipped)
+  ? bad('кеш плиток названий по версії застосунку — наступний реліз зітре викачану карту')
+  : ok('кеш плиток не привʼязаний до версії застосунку');
+
+/* ── 15. Помилки в консолі ───────────────────────────────────────── */
 await sleep(300);
 errors.length === 0
   ? ok('консоль чиста')
