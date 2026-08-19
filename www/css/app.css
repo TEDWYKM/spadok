@@ -300,3 +300,65 @@ body.road .leaflet-bar a{background:#141D22;color:#EAF2F4!important;border-color
 .startpick button[aria-pressed="true"]{border-color:var(--verd-dk);background:rgba(46,125,108,.07)}
 .startpick b{display:block;font-size:13px}
 .startpick span{font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--ink-3)}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ГОЛОВНИЙ ЕКРАН: КАРТА + НИЖНЯ ШТОРКА
+   Усталений патерн застосунків із картою (Google Maps, Citymapper,
+   Uber): карта на весь екран, поверх неї стійка шторка, яку тягнуть
+   пальцем. Три положення замість вільної висоти — щоб великий палець
+   потрапляв туди, куди цілився, а не зупиняв шторку де завгодно.
+   Ручка обов'язкова: без неї шторка не читається як рухома.
+   ═══════════════════════════════════════════════════════════════════ */
+
+body.mapv .body{padding:0;overflow:hidden;display:flex}
+.mapview{position:relative;flex:1;min-height:0;display:flex}
+/* Карта не змінює розмір під час перетягування шторки: вона на весь
+   екран, а шторка просто наїжджає зверху. Інакше кожен кадр тягнув би
+   за собою перерахунок плиток. */
+.mapview .lmap{position:absolute;inset:0;height:auto;min-height:0;border:none;border-radius:0;z-index:1}
+
+/* Те, що плаває над картою: теми і банер тривоги. */
+.mapview .over{position:absolute;left:0;right:0;top:0;z-index:400;padding:10px 12px 0;
+  pointer-events:none;display:flex;flex-direction:column;gap:8px}
+.mapview .over > *{pointer-events:auto}
+.mapview .over .chips{padding:0;margin:0}
+.mapview .over .chip{background:var(--sheet);box-shadow:var(--shadow-sm);border-color:transparent}
+.mapview .over .chip[aria-pressed="true"]{background:var(--ink);color:var(--sheet)}
+.mapview .over .alert{margin:0;background:var(--sheet);box-shadow:var(--shadow-sm);
+  border-color:rgba(168,84,43,.45)}
+
+/* Кругла кнопка «до мене» — над шторкою, як у всіх картах. */
+.mapview .locme{position:absolute;right:14px;z-index:500;width:46px;height:46px;
+  border-radius:var(--r-pill);background:var(--sheet);box-shadow:var(--shadow);
+  display:grid;place-items:center;transition:bottom .28s var(--ease)}
+.mapview .locme svg{width:20px;height:20px;stroke:var(--ink);fill:none;stroke-width:1.8;stroke-linecap:round}
+.mapview .locme[aria-pressed="true"] svg{stroke:var(--verd-dk)}
+
+/* Сама шторка. */
+.msheet{position:absolute;left:0;right:0;bottom:0;z-index:600;display:flex;flex-direction:column;
+  background:var(--sheet);border-radius:var(--r-xl) var(--r-xl) 0 0;
+  box-shadow:0 -2px 0 rgba(21,36,46,.06), 0 -18px 40px -24px rgba(21,36,46,.55);
+  transition:height .28s var(--ease)}
+.msheet.dragging{transition:none}
+/* Ручка. 48px по висоті — мінімальна зона дотику за рекомендаціями
+   доступності; сама смужка вужча, але тягнеться вся область. */
+.mgrab{flex:none;min-height:34px;display:grid;place-items:center;touch-action:none;
+  padding:13px 0 7px;cursor:grab}
+.mgrab i{display:block;width:40px;height:4px;border-radius:var(--r-pill);background:var(--line-2)}
+.msheet.dragging .mgrab{cursor:grabbing}
+.mhead{flex:none;padding:0 16px 10px;touch-action:none}
+.mtabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:3px;margin-bottom:10px;
+  background:rgba(21,36,46,.06);border-radius:var(--r-pill)}
+.mtabs button{padding:9px;border-radius:var(--r-pill);font-size:12.5px;color:var(--ink-3)}
+.mtabs button[aria-pressed="true"]{background:var(--sheet);color:var(--ink);box-shadow:var(--shadow-sm)}
+.mlist{flex:1;min-height:0;overflow:auto;padding:0 16px 20px;overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch}
+.mlist .card{margin-bottom:9px}
+/* Відстань до точки — головне число цього екрана, тож не дрібним сірим. */
+.dnum{font-family:"Unbounded",sans-serif;font-size:13px;white-space:nowrap}
+.dnum span{font-family:"IBM Plex Mono",monospace;font-size:10px;color:var(--ink-3);margin-left:3px}
+
+/* Схема замість карти, коли плиток немає: у повноекранному режимі
+   вона має заповнювати площу, а не тулитись угорі. */
+.mapview .lmap.fallback{display:flex;flex-direction:column;justify-content:center;
+  height:auto!important;overflow:auto;padding:14px 14px 34%}

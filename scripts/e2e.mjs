@@ -381,7 +381,7 @@ after.visits === 3 && after.ratings === 1 && after.done === 1
    оголошений і ніде не викликаний. Тут точку штучно «старять»
    і дивляться, куди вона з цього дівається — у списку і в треку. */
 const tiers = await evaluate(`
-  const p = P('univ'), was = p.upd;
+  const p = P('univ'), was = p.upd, wasSort = V.sort;
   const at = d => new Date(Date.now() - d * 864e5).toISOString().slice(0, 10);
   const snap = () => {
     V.screen = 'map'; V.sort = 'pop'; render();
@@ -399,8 +399,10 @@ const tiers = await evaluate(`
   p.upd = at(5);   const a = snap();
   p.upd = at(70);  const b = snap();
   p.upd = at(130); const c = snap();
-  p.upd = was; render();
-  return { fresh: a, stale: b, gone: c, restored: p.upd === was };
+  /* Прибираємо за собою: інакше наступні перевірки побачать екран
+     у режимі «найпопулярніші» і вирішать, що зламане сортування. */
+  p.upd = was; V.sort = wasSort; render();
+  return { fresh: a, stale: b, gone: c, restored: p.upd === was && V.sort === wasSort };
 `);
 tiers.fresh.tag === 'none' && !tiers.fresh.blocked
   ? ok('свіжа перевірка: без позначки, точка в треку')
@@ -521,7 +523,67 @@ const back = await evaluate(`return {
   : bad('після виходу екран не відновився: ' + JSON.stringify(back));
 await click('[data-act="abort"]');
 
-/* ── 11. Шторки замість системних діалогів ───────────────────────── */
+/* ── 11. Головний екран: карта і нижня шторка ────────────────────── */
+await click('[data-nav="map"]');
+await sleep(700);
+const home = await evaluate(`
+  const view = document.querySelector('.mapview');
+  const sh = document.getElementById('msheet');
+  const map = document.getElementById('lmap');
+  const V0 = view.getBoundingClientRect(), M = map.getBoundingClientRect();
+  const ids = [...document.querySelectorAll('#mlist .card')].map(c => c.dataset.open);
+  const from = Geo.pos || P('rynok');
+  const ds = ids.map(id => dist(from, P(id)));
+  return {
+    frac: +(sh.getBoundingClientRect().height / V0.height).toFixed(2),
+    mapFills: Math.round(M.height) >= Math.round(V0.height) - 2 &&
+              Math.round(M.width) >= Math.round(V0.width) - 2,
+    handle: !!document.querySelector('.mgrab'),
+    locme: !!document.getElementById('locme'),
+    count: ids.length,
+    ordered: ds.every((d, i) => i === 0 || d >= ds[i - 1] - 0.001),
+    first: ids[0], firstKm: Math.round(ds[0])
+  };
+`);
+home.frac >= 0.26 && home.frac <= 0.34
+  ? ok('у спокої карта займає ' + Math.round((1 - home.frac) * 100) + '% екрана')
+  : bad('шторка не в тому положенні: ' + home.frac);
+home.mapFills ? ok('карта на всю площу, без рамок') : bad('карта не заповнює екран');
+home.handle && home.locme
+  ? ok('є ручка шторки і кнопка «до мене»')
+  : bad('немає ручки або кнопки центрування: ' + JSON.stringify(home));
+home.ordered && home.count === 17
+  ? ok('місця відсортовані від найближчого: ' + home.first + ' (' + home.firstKm + ' км)')
+  : bad('порядок за відстанню порушено: ' + JSON.stringify(home));
+
+/* Ручка перебирає положення — для тих, хто тицяє, а не тягне. */
+await click('[data-act="grab"]');
+await sleep(450);
+const grown = await evaluate(`
+  const view = document.querySelector('.mapview');
+  return +(document.getElementById('msheet').getBoundingClientRect().height /
+           view.getBoundingClientRect().height).toFixed(2);
+`);
+grown > home.frac
+  ? ok('тап по ручці розгортає шторку: ' + home.frac + ' → ' + grown)
+  : bad('шторка не розгорнулась: ' + home.frac + ' → ' + grown);
+
+/* Маршрути в тій самій шторці й теж від найближчого. */
+await click('[data-tab="routes"]');
+await sleep(350);
+const tabRoutes = await evaluate(`
+  const ids = [...document.querySelectorAll('#mlist .card')].map(c => c.dataset.route);
+  const from = Geo.pos || P('rynok');
+  const ds = ids.map(id => routeDist(ROUTES.find(r => r.id === id), from));
+  return { ids, ordered: ds.every((d, i) => i === 0 || d >= ds[i - 1] - 0.001), first: ids[0] };
+`);
+tabRoutes.ids.length === 9 && tabRoutes.ordered
+  ? ok('маршрути в шторці теж від найближчого: ' + tabRoutes.first)
+  : bad('маршрути не відсортовані: ' + JSON.stringify(tabRoutes));
+await shot('11-home');
+await click('[data-tab="places"]');
+
+/* ── 12. Шторки замість системних діалогів ───────────────────────── */
 await click('[data-nav="map"]');
 await click('[data-open="tustan"]');
 await click('[data-act="report"]');
@@ -532,7 +594,7 @@ await click('[data-sheet="1"]');
 (await $('.toast')) ? ok('після вибору показано підтвердження') : bad('немає підтвердження');
 !(await $('.scrim')) ? ok('шторка закрилась') : bad('шторка лишилась відкритою');
 
-/* ── 12. Карта без мережі ────────────────────────────────────────── */
+/* ── 13. Карта без мережі ────────────────────────────────────────── */
 /* У цьому середовищі плитки й CDN заблоковані, тому перевіряємо
    саме той шлях, який побачить користувач у зоні без зв'язку. */
 await click('[data-nav="map"]');
@@ -546,7 +608,7 @@ map.fallback || map.leaflet
   : bad('карта не показала ні себе, ні схему');
 await shot('10-map-offline');
 
-/* ── 13. Помилки в консолі ───────────────────────────────────────── */
+/* ── 14. Помилки в консолі ───────────────────────────────────────── */
 await sleep(300);
 errors.length === 0
   ? ok('консоль чиста')

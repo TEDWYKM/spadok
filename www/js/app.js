@@ -97,14 +97,17 @@ const Store = (function () {
 
 let S = { v: 3, visits: {}, ratings: {}, done: [], badges: [], offline: [] };
 let V = {
-  screen: 'map', theme: 'all', sort: 'pop', size: 'all',
+  screen: 'map', theme: 'all', sort: 'near', size: 'all',
   route: null, idx: 0, t0: 0, sel: null, from: 'map',
   media: 'photo', draftStars: 0, tiles: 'osm',
   fresh: [], sheet: null, toast: null, swUpdate: false,
   /* Дорожній режим: повноекранна карта, що їде за користувачем.
      plan — порядок точок саме цієї подорожі, перебудований під
      положення на старті; у даних маршрут лишається недоторканим. */
-  road: false, roadBack: false, follow: true, followAnim: false, plan: null
+  road: false, roadBack: false, follow: true, followAnim: false, plan: null,
+  /* Головний екран: яка вкладка у шторці, у якому вона положенні
+     і чи вже ставили карту на позицію користувача. */
+  mapTab: 'places', snap: 0, centered: false, listAt: null
 };
 let MOUNT = null, LMAP = null, LEAFLET = null, MEMARK = null, MEACC = null, MOUNTBOUNDS = null;
 /* Трек поточного відрізка і точка, з якої його прокладали:
@@ -561,6 +564,11 @@ async function mountMap() {
 
   if (cfg.nav && Geo.pos) {
     map.setView([Geo.pos.lat, Geo.pos.lon], navZoom(Geo.pos.spd, cfg.toNext));
+  } else if (cfg.full && Geo.pos) {
+    /* Головний екран відкривається там, де ви є, а не там, де база. */
+    V.centered = true;
+    map.setView([Geo.pos.lat, Geo.pos.lon], 11);
+    setTimeout(() => { if (LMAP === map) centerOnMe(map, 11); }, 60);
   } else {
     try { map.fitBounds(bounds.pad(.18)); }
     catch (e) { map.setView([49.84, 24.03], 8); }
@@ -671,6 +679,110 @@ function fallbackSVG(cfg) {
     '<svg viewBox="0 0 560 290">' + legs + pins + '</svg>';
 }
 
+/* ═════════ ШТОРКА ГОЛОВНОГО ЕКРАНА ═════════
+   Тягнеться за ручку й за шапку. Список усередині гортається сам,
+   але коли він угорі й палець іде вниз — тягнеться шторка: інакше
+   зібрати її назад можна було б тільки прицільним попаданням
+   у вузьку смужку.                                              */
+let SHEET = null;
+
+function sheetPx() {
+  const el = document.getElementById('msheet');
+  return el ? el.getBoundingClientRect().height : 0;
+}
+
+function applySnap(i, animate) {
+  V.snap = Math.max(0, Math.min(SNAPS.length - 1, i));
+  const el = document.getElementById('msheet');
+  const btn = document.getElementById('locme');
+  if (!el) return;
+  el.classList.toggle('dragging', !animate);
+  el.style.height = (SNAPS[V.snap] * 100) + '%';
+  if (btn) btn.style.bottom = 'calc(' + (SNAPS[V.snap] * 100) + '% + 14px)';
+  if (!animate) requestAnimationFrame(() => el.classList.remove('dragging'));
+}
+
+function bindSheet() {
+  const el = document.getElementById('msheet');
+  const list = document.getElementById('mlist');
+  if (SHEET) { window.removeEventListener('pointerup', SHEET.up); SHEET = null; }
+  if (!el) return;
+  applySnap(V.snap, true);
+
+  const view = el.parentElement;
+  let y0 = 0, h0 = 0, armed = false, live = false, fromList = false;
+
+  /* Порогом у 6 пікселів відрізняємо перетягування від тапу: без нього
+     кожен дотик до картки в списку рахувався б рухом шторки, і картка
+     переставала б відкриватись. */
+  const down = e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const onList = list && list.contains(e.target);
+    if (onList && list.scrollTop > 0) return;
+    fromList = onList;
+    y0 = e.clientY;
+    h0 = el.getBoundingClientRect().height;
+    armed = true; live = false;
+  };
+
+  const move = e => {
+    if (!armed) return;
+    const dy = e.clientY - y0;
+    if (!live) {
+      if (Math.abs(dy) < 6) return;
+      /* Зі списку тягнемо тільки вниз: рух угору там означає гортання. */
+      if (fromList && dy < 0) { armed = false; return; }
+      live = true;
+      el.classList.add('dragging');
+    }
+    const H = view.getBoundingClientRect().height || 1;
+    const h = Math.max(SNAPS[0] * H * .55,
+      Math.min(SNAPS[SNAPS.length - 1] * H, h0 - dy));
+    el.style.height = (h / H * 100) + '%';
+    e.preventDefault();
+  };
+
+  const up = () => {
+    armed = false;
+    if (!live) return;
+    live = false;
+    const H = view.getBoundingClientRect().height || 1;
+    const frac = el.getBoundingClientRect().height / H;
+    let best = 0;
+    SNAPS.forEach((sn, i) => {
+      if (Math.abs(sn - frac) < Math.abs(SNAPS[best] - frac)) best = i;
+    });
+    el.classList.remove('dragging');
+    applySnap(best, true);
+  };
+
+  el.addEventListener('pointerdown', down);
+  el.addEventListener('pointermove', move, { passive: false });
+  /* Палець часто відривається за межами шторки — ловимо це на вікні. */
+  window.addEventListener('pointerup', up);
+  SHEET = { el, up };
+}
+
+/* Тап по ручці перебирає положення — так само, як у системних
+   шторках Android: не всі тягнуть, дехто просто тицяє. */
+function cycleSnap() {
+  applySnap(V.snap >= SNAPS.length - 1 ? 0 : V.snap + 1, true);
+}
+
+/* Карта центрується на користувачеві, але з поправкою на шторку:
+   інакше ваша позначка опинилась би точно під нею. */
+function centerOnMe(map, zoom) {
+  if (!Geo.pos || !map) return;
+  const z = zoom || Math.max(map.getZoom() || 0, 13);
+  try {
+    const off = sheetPx() / 2;
+    const pt = map.project([Geo.pos.lat, Geo.pos.lon], z).add([0, off]);
+    map.setView(map.unproject(pt, z), z, { animate: true });
+  } catch (e) {
+    try { map.setView([Geo.pos.lat, Geo.pos.lon], z); } catch (e2) {}
+  }
+}
+
 /* ═════════ ДРІБНІ БЛОКИ ІНТЕРФЕЙСУ ═════════ */
 const STAR_PATH = 'M12 2.6l2.9 6 6.5.9-4.7 4.6 1.1 6.5L12 17.5 6.2 20.6l1.1-6.5L2.6 9.5l6.5-.9z';
 
@@ -766,47 +878,154 @@ const Alarms = {
 };
 
 /* ═════════ ЕКРАНИ ═════════ */
-function scrMap() {
-  const list = V.theme === 'all' ? POINTS : POINTS.filter(p => p.t.indexOf(V.theme) > -1);
-  const base = P('rynok');
-  /* Правило 2 доведене до інтерфейсу. Рекомендована точка — доступна
-     (st === 'ok') і зі свіжою перевіркою. Решта не зникає: опускається
-     під рекомендовані, з підписом, чому саме. У «найближчих» порядок
-     задає відстань — підміняти її означало б брехати про дорогу. */
-  const sorted = list.slice().sort((a, b) =>
-    V.sort === 'pop'
-      ? (recommended(b) - recommended(a)) || (b.pop - a.pop)
-      : dist(base, a) - dist(base, b));
-  const notRec = V.sort === 'pop' ? list.filter(p => !recommended(p)) : [];
-  MOUNT = { points: list };
+/* ── Головний екран ──────────────────────────────────────────────────
+   Карта на весь екран, поверх неї стійка нижня шторка. Патерн узятий
+   з застосунків, де карта і є продуктом: у стані спокою вона займає
+   70% висоти, шторка визирає рівно настільки, щоб було видно, що там
+   список і його можна витягти.                                      */
 
-  return '<div>' + (V.swUpdate ? updBanner() : '') + Alarms.banner() +
+/* Три положення шторки, часткою висоти екрана. Не вільна висота:
+   зі снапами палець потрапляє туди, куди цілився. */
+const SNAPS = [0.30, 0.62, 0.92];
+
+/* Звідки міряємо відстані. Є сигнал — від вас; немає — від бази,
+   і на екрані так і написано, щоб число не вводило в оману. */
+const distFrom = () => Geo.pos || P('rynok');
+
+/* Відстань до маршруту — до найближчої його точки, а не до першої:
+   маршрут може починатись далеко, а проходити поруч. */
+/* «Популярність» маршруту — середня популярність його точок.
+   Раніше тут стояло сортування за розміром, що просто вигадувало
+   порядок із нічого. */
+const routePop = r => {
+  const ids = flat(r);
+  return ids.reduce((a, id) => a + P(id).pop, 0) / (ids.length || 1);
+};
+
+function routeNear(r, from) {
+  return flat(r).reduce((best, id) => {
+    const km = dist(from, P(id));
+    return km < best.km ? { km, id } : best;
+  }, { km: Infinity, id: null });
+}
+const routeDist = (r, from) => routeNear(r, from).km;
+
+function distTag(km) {
+  return '<span class="dnum">' + (km < 10 ? km.toFixed(1).replace('.', ',') : Math.round(km)) +
+    '<span>км</span></span>';
+}
+
+function placeCard(p, from) {
+  const my = S.ratings[p.id];
+  const shown = my ? my.stars : p.rate;
+  const vis = S.visits[p.id];
+  return '<div class="card" data-open="' + p.id + '">' +
+    '<div class="between"><h3>' + esc(p.n) + '</h3>' + distTag(dist(from, p)) + '</div>' +
+    '<p class="lede" style="margin:7px 0 9px">' + esc(p.s) + '</p>' +
+    '<div class="between"><div class="row">' + stars(Math.round(shown), 'sm') +
+    '<span class="meta">' + shown.toFixed(1) + (my ? ' · ваша' : '') + '</span></div>' +
+    '<span class="row" style="gap:5px">' + stTag(p) + '</span></div>' +
+    (vis ? '<div style="margin-top:10px"><span class="stamp' + (vis.by === 'manual' ? ' manual' : '') +
+      '">Відвідано · ' + stamp(vis.at) + '</span></div>' : '') +
+    '</div>';
+}
+
+function routeCard(r, from) {
+  const s = routeStats(r), fin = S.done.indexOf(r.id) > -1;
+  const near = routeNear(r, from);
+  return '<div class="card" data-route="' + r.id + '">' +
+    '<div class="between"><h3>' + esc(r.n) + '</h3>' + distTag(near.km) + '</div>' +
+    '<p class="lede" style="margin:7px 0 9px">' + esc(r.why) + '</p>' +
+    '<div class="row" style="gap:8px;flex-wrap:wrap">' +
+    '<span class="tag size">' + SIZES[r.size].d + '</span>' +
+    '<span class="meta">' + s.stops + ' зупинок · ' + s.km + ' км</span>' +
+    (fin ? '<span class="tag ok">пройдено</span>' : '') + '</div>' +
+    /* Саме число «4 км до маршруту» без назви нічого не пояснює,
+       а на кількох маршрутах через ту саму точку ще й однакове. */
+    (near.id ? '<p class="meta" style="margin:8px 0 0">найближча точка · ' +
+      esc(P(near.id).n) + '</p>' : '') + '</div>';
+}
+
+function mapModel() {
+  const from = distFrom();
+  const live = Geo.state === 'live' && !!Geo.pos;
+  const near = V.sort !== 'pop';
+
+  const places = (V.theme === 'all' ? POINTS : POINTS.filter(p => p.t.indexOf(V.theme) > -1))
+    .slice().sort((a, b) => near
+      ? dist(from, a) - dist(from, b)
+      /* Правило 2 доведене до інтерфейсу: у «найпопулярніших»
+         рекомендовані йдуть першими. У «найближчих» порядок задає
+         відстань — підміняти її означало б брехати про дорогу. */
+      : (recommended(b) - recommended(a)) || (b.pop - a.pop));
+
+  const routes = ROUTES.filter(r => V.theme === 'all' ||
+      flat(r).some(id => P(id).t.indexOf(V.theme) > -1))
+    /* За рівної відстані попереду коротший маршрут: із однієї точки
+       логічніше запропонувати одноденний, ніж чотириденний. */
+    .slice().sort((a, b) => near
+      ? (routeDist(a, from) - routeDist(b, from)) || (routeStats(a).km - routeStats(b).km)
+      : routePop(b) - routePop(a));
+
+  const tab = V.mapTab === 'routes' ? 'routes' : 'places';
+  const notRec = !near ? places.filter(p => !recommended(p)) : [];
+  return { from, live, near, places, routes, tab, notRec };
+}
+
+const mapListHTML = m => m.tab === 'places'
+  ? m.places.map(p => placeCard(p, m.from)).join('')
+  : m.routes.map(r => routeCard(r, m.from)).join('');
+
+/* Відстані в списку живі, але перемальовувати весь екран на кожен фікс
+   GPS означало б перебудовувати карту і скидати шторку. Тому міняємо
+   тільки те, що залежить від позиції. */
+function refreshMapList() {
+  const el = document.getElementById('mlist');
+  if (!el || V.screen !== 'map') return;
+  const m = mapModel();
+  el.innerHTML = mapListHTML(m);
+  const eye = document.querySelector('.mhead .eyebrow');
+  if (eye) eye.textContent = m.near ? (m.live ? 'від вас' : 'від Львова') : 'найпопулярніші';
+  const note = document.getElementById('nosignal');
+  if (note && m.live) note.remove();
+}
+
+function scrMap() {
+  const m = mapModel();
+  const { from, live, near, places, routes, tab, notRec } = m;
+  MOUNT = { points: places, full: true };
+
+  const head = '<div class="mtabs" role="group" aria-label="Що показувати">' +
+    '<button aria-pressed="' + (tab === 'places') + '" data-tab="places">Місця · ' + places.length + '</button>' +
+    '<button aria-pressed="' + (tab === 'routes') + '" data-tab="routes">Маршрути · ' + routes.length + '</button>' +
+    '</div>' +
+    '<div class="between"><span class="eyebrow">' +
+    (near ? (live ? 'від вас' : 'від Львова') : 'найпопулярніші') + '</span>' +
+    '<button class="btn-sm" data-act="sort">' +
+    (near ? 'Найближчі' : 'Найпопулярніші') + ' ⇅</button></div>' +
+    (near && !live
+      ? '<p class="meta" id="nosignal" style="margin:8px 0 0;line-height:1.45">Сигналу ще немає, ' +
+        'тому відстані рахуються від Львова. З\u2019явиться — перерахуються.</p>'
+      : '') +
+    (notRec.length ? '<p class="meta" style="margin:8px 0 0;line-height:1.45">' +
+      pts(notRec.length) + ' нижче рекомендованих: ' + recWhy(notRec) + '.</p>' : '');
+
+  return '<div class="mapview">' +
+    '<div id="lmap" class="lmap"></div>' +
+    '<div class="over">' + (V.swUpdate ? updBanner() : '') + Alarms.banner() +
     '<div class="chips" role="group" aria-label="Тема">' +
     '<button class="chip" aria-pressed="' + (V.theme === 'all') + '" data-theme="all">Усі теми</button>' +
     Object.keys(THEMES).map(k => '<button class="chip" aria-pressed="' + (V.theme === k) +
-      '" data-theme="' + k + '">' + THEMES[k] + '</button>').join('') + '</div>' +
-    '<div id="lmap" class="lmap"></div>' + mapBar() +
-    '<div class="between" style="margin:14px 0 10px"><span class="eyebrow">' + list.length +
-    ' точок · ' + Object.keys(S.visits).length + ' відвідано</span>' +
-    '<button class="btn-sm" data-act="sort">' +
-    (V.sort === 'pop' ? 'Найпопулярніші' : 'Найближчі') + ' ⇅</button></div>' +
-    (notRec.length ? '<p class="meta" style="margin:-4px 0 10px">' +
-      pts(notRec.length) + ' нижче рекомендованих: ' + recWhy(notRec) + '.</p>' : '') +
-    sorted.map(p => {
-      const d = Math.round(dist(base, p));
-      const my = S.ratings[p.id];
-      const shown = my ? my.stars : p.rate;
-      const vis = S.visits[p.id];
-      return '<div class="card" data-open="' + p.id + '">' +
-        '<div class="between"><h3>' + esc(p.n) + '</h3><span class="row" style="gap:5px">' + stTag(p) + '</span></div>' +
-        '<p class="lede" style="margin:7px 0 9px">' + esc(p.s) + '</p>' +
-        '<div class="between"><div class="row">' + stars(Math.round(shown), 'sm') +
-        '<span class="meta">' + shown.toFixed(1) + (my ? ' · ваша' : '') + '</span></div>' +
-        '<span class="meta">' + d + ' км від Львова</span></div>' +
-        (vis ? '<div style="margin-top:10px"><span class="stamp' + (vis.by === 'manual' ? ' manual' : '') +
-          '">Відвідано · ' + stamp(vis.at) + '</span></div>' : '') +
-        '</div>';
-    }).join('') + '</div>';
+      '" data-theme="' + k + '">' + THEMES[k] + '</button>').join('') + '</div></div>' +
+    '<button class="locme" id="locme" data-act="locme" aria-pressed="' + live + '" ' +
+    'aria-label="Показати моє місце"><svg viewBox="0 0 24 24">' +
+    '<circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>' +
+    '<div class="msheet" id="msheet">' +
+    '<div class="mgrab" data-act="grab" role="button" tabindex="0" ' +
+    'aria-label="Перетягніть, щоб розгорнути список"><i></i></div>' +
+    '<div class="mhead">' + head + '</div>' +
+    '<div class="mlist" id="mlist">' +
+    mapListHTML(m) + '</div></div></div>';
 }
 
 function scrRoutes() {
@@ -1547,6 +1766,7 @@ function render() {
   /* Дорожній режим існує тільки на екрані подорожі: пішов на інший
      екран — рамка, заголовок і навігація повертаються самі. */
   document.body.classList.toggle('road', !!V.road && V.screen === 'journey');
+  document.body.classList.toggle('mapv', V.screen === 'map');
 
   if (LMAP) { try { LMAP.remove(); } catch (e) {} LMAP = null; MEMARK = null; MEACC = null; }
 
@@ -1565,6 +1785,7 @@ function render() {
   }).join('');
 
   paintOverlays();
+  if (V.screen === 'map') bindSheet(); else SHEET = null;
   mountMap();
 }
 
@@ -1572,13 +1793,14 @@ function render() {
    безпечніше з текстом даних і легше тестувати. */
 function onTap(e) {
   const t = e.target.closest('[data-open],[data-route],[data-theme],[data-size],[data-tiles],' +
-    '[data-star],[data-media],[data-nav],[data-back],[data-act],[data-sheet]');
+    '[data-star],[data-media],[data-nav],[data-back],[data-act],[data-sheet],[data-tab]');
   if (!t) return;
   const d = t.dataset;
 
   if (d.sheet != null && V.sheet) { V.sheet.onPick(V.sheet.options[+d.sheet], +d.sheet); return; }
   if (d.act === 'scrim') { if (e.target === t) closeSheet(); return; }
   if (d.act === 'sheet-close') { closeSheet(); return; }
+  if (d.tab != null) { V.mapTab = d.tab; render(); return; }
   if (d.theme != null) { V.theme = d.theme; render(); return; }
   if (d.size != null) { V.size = d.size; render(); return; }
   if (d.tiles != null) { V.tiles = d.tiles; render(); return; }
@@ -1591,6 +1813,12 @@ function onTap(e) {
 
   switch (d.act) {
     case 'sort': V.sort = V.sort === 'pop' ? 'near' : 'pop'; render(); break;
+    case 'grab': cycleSnap(); break;
+    case 'locme':
+      if (Geo.state !== 'live') Geo.start();
+      if (Geo.pos && LMAP) centerOnMe(LMAP, 14);
+      else toast('Шукаю сигнал', 'Щойно GPS відгукнеться — карта стане на ваше місце.');
+      break;
     case 'geo-on': Geo.start(); render(); break;
     case 'start': startJourney(); break;
     case 'road-on': roadMode(true); break;
@@ -1673,14 +1901,30 @@ function boot() {
       return;
     }
 
-    if (V.screen === 'point' || V.screen === 'map') {
+    if (V.screen === 'map') {
+      /* Перший фікс: ставимо карту на вас і перемальовуємо, бо
+         змінюється і порядок списку, і підписи відстаней. */
+      if (stateChanged) { render(); return; }
+      if (!V.centered && Geo.pos && LMAP) { V.centered = true; centerOnMe(LMAP, 11); }
+      if (Geo.pos && (!V.listAt || distM(V.listAt, Geo.pos) > 300)) {
+        V.listAt = { lat: Geo.pos.lat, lon: Geo.pos.lon };
+        refreshMapList();
+      }
+      return;
+    }
+
+    if (V.screen === 'point') {
       if (stateChanged) { render(); return; }
       const bar = document.querySelector('.geo');
-      if (bar) bar.outerHTML = geoBar(V.screen === 'point' ? P(V.sel) : null);
+      if (bar) bar.outerHTML = geoBar(P(V.sel));
     }
   });
 
   Alarms.load();
+  /* Головний екран — це карта на вашій позиції, тож дозвіл на місце
+     просимо одразу, а не аж під час першої подорожі. Відмова нічого
+     не ламає: відстані рахуються від Львова, і на екрані так і сказано. */
+  Geo.start();
   render();
 
   if ('serviceWorker' in navigator) {
