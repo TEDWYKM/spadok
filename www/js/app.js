@@ -110,6 +110,7 @@ let V = {
   mapTab: 'places', snap: 0, centered: false, listAt: null
 };
 let MOUNT = null, LMAP = null, LEAFLET = null, MEMARK = null, MEACC = null, MOUNTBOUNDS = null;
+let MARKS = null;
 /* Трек поточного відрізка і точка, з якої його прокладали:
    відійшов далеко — перекладаємо. */
 let NAVLINE = null, NAVFROM = null, NAVAT = 0, NAVBUSY = false;
@@ -518,23 +519,11 @@ async function mountMap() {
     }
   });
 
-  cfg.points.forEach(p => {
-    const on = !!S.visits[p.id], now = cfg.now === p.id;
-    const shape = p.kind === 'sacral' ? 'sacral ' : p.kind === 'ruin' ? 'ruin ' : '';
-    const cls = 'mk ' + shape + (now ? 'now' : on ? 'on' : '');
-    L.marker([p.lat, p.lon], {
-      icon: L.divIcon({
-        className: '', html: '<div class="' + cls + '"><i></i></div>',
-        iconSize: [22, 22], iconAnchor: [11, 11]
-      }),
-      title: p.n
-    }).addTo(map).bindPopup(
-      '<b>' + esc(p.n) + '</b><br>' +
-      '<span style="color:#6D8091;font-size:11.5px">' + esc(p.s) + '</span><br>' +
-      '<button data-open="' + p.id + '" style="margin-top:7px;border:1px solid rgba(21,36,46,.3);' +
-      'border-radius:8px;padding:6px 11px;font-size:12px;background:#fff;cursor:pointer">Відкрити</button>'
-    );
-  });
+  MARKS = L.layerGroup().addTo(map);
+  drawMarks(map, cfg);
+  /* Кластери живуть тільки на головній карті: на екрані маршруту
+     треба бачити кожну зупинку, скільки б їх не тулилось поруч. */
+  if (cfg.full) map.on('zoomend', () => { if (LMAP === map) drawMarks(map, cfg); });
 
   const bounds = L.latLngBounds(cfg.points.map(p => [p.lat, p.lon]));
 
@@ -575,6 +564,82 @@ async function mountMap() {
   }
   MOUNTBOUNDS = bounds;
   setTimeout(() => { try { map.invalidateSize(); } catch (e) {} }, 150);
+}
+
+/* ═════════ ПОЗНАЧКИ НА КАРТІ ═════════
+   Усі позначки — кружальця, колір закріплений за типом обʼєкта.
+   Під увімкненим фільтром теми колір беремо від теми: тоді на карті
+   лишаються тільки її точки, і колір означає саме її.               */
+function markColor(p) {
+  const dk = V.road || V.tiles === 'dark';
+  const key = dk ? 'd' : 'l';
+  if (V.theme !== 'all' && THEME_COLOR[V.theme]) return THEME_COLOR[V.theme][key];
+  return (KIND_COLOR[p.kind] || KIND_COLOR.city)[key];
+}
+
+/* Скупчення розводимо по сітці в ПІКСЕЛЯХ поточного зуму, а не в
+   градусах: на карті злипаються ті точки, що близькі на екрані,
+   а не ті, що близькі на глобусі. Тому з наближенням купа сама
+   розпадається — окремої анімації для цього не треба. */
+function clusterize(map, points, cell) {
+  const z = map.getZoom();
+  const cells = new Map();
+  points.forEach(p => {
+    const pt = map.project([p.lat, p.lon], z);
+    const key = Math.floor(pt.x / cell) + ':' + Math.floor(pt.y / cell);
+    if (!cells.has(key)) cells.set(key, []);
+    cells.get(key).push(p);
+  });
+  return [...cells.values()];
+}
+
+function drawMarks(map, cfg) {
+  if (!MARKS || !window.L) return;
+  MARKS.clearLayers();
+  const groups = cfg.full ? clusterize(map, cfg.points, 58) : cfg.points.map(p => [p]);
+
+  groups.forEach(g => {
+    if (g.length > 1) {
+      const lat = g.reduce((a, p) => a + p.lat, 0) / g.length;
+      const lon = g.reduce((a, p) => a + p.lon, 0) / g.length;
+      /* Розмір росте від кількості, але повільно: інакше велике
+         скупчення закриває пів області. */
+      const size = Math.min(52, 30 + Math.round(Math.log2(g.length) * 7));
+      const seen = g.filter(p => S.visits[p.id]).length;
+      L.marker([lat, lon], {
+        icon: L.divIcon({
+          className: '',
+          html: '<div class="mkc" style="width:' + size + 'px;height:' + size + 'px">' +
+            g.length + (seen ? '<b></b>' : '') + '</div>',
+          iconSize: [size, size], iconAnchor: [size / 2, size / 2]
+        }),
+        title: g.length + ' точок поруч'
+      }).addTo(MARKS).on('click', () => {
+        /* Тап по скупченню наближає до нього, а не відкриває список:
+           так поводяться всі карти, і це передбачувано. */
+        try { map.flyToBounds(L.latLngBounds(g.map(p => [p.lat, p.lon])).pad(.35), { maxZoom: 14 }); }
+        catch (e) { map.setView([lat, lon], Math.min(14, map.getZoom() + 2)); }
+      });
+      return;
+    }
+
+    const p = g[0];
+    const on = !!S.visits[p.id], now = cfg.now === p.id;
+    L.marker([p.lat, p.lon], {
+      icon: L.divIcon({
+        className: '',
+        html: '<div class="mk ' + (now ? 'now' : on ? 'on' : '') +
+          '" style="--c:' + markColor(p) + '"><i></i></div>',
+        iconSize: [24, 24], iconAnchor: [12, 12]
+      }),
+      title: p.n
+    }).addTo(MARKS).bindPopup(
+      '<b>' + esc(p.n) + '</b><br>' +
+      '<span style="color:#6D8091;font-size:11.5px">' + esc(p.s) + '</span><br>' +
+      '<button data-open="' + p.id + '" style="margin-top:7px;border:1px solid rgba(21,36,46,.3);' +
+      'border-radius:999px;padding:6px 13px;font-size:12px;background:#fff;cursor:pointer">Відкрити</button>'
+    );
+  });
 }
 
 /* Своя позначка. Трикутник дивиться туди, куди ти рухаєшся; коли
@@ -995,7 +1060,18 @@ function scrMap() {
   const { from, live, near, places, routes, tab, notRec } = m;
   MOUNT = { points: places, full: true };
 
-  const head = '<div class="mtabs" role="group" aria-label="Що показувати">' +
+  /* Легенда: колір без підпису — значення, доступне тільки тим, хто
+     його бачить. Під фільтром теми легенда стискається в один рядок,
+     бо кольори там уже не про типи. */
+  const legend = V.theme !== 'all' && THEME_COLOR[V.theme]
+    ? '<div class="legend"><span style="--c:' +
+      THEME_COLOR[V.theme][(V.road || V.tiles === 'dark') ? 'd' : 'l'] + '"><i></i>' +
+      esc(THEMES[V.theme]) + '</span></div>'
+    : '<div class="legend">' + Object.keys(KIND_COLOR).map(k =>
+        '<span style="--c:' + KIND_COLOR[k][(V.road || V.tiles === 'dark') ? 'd' : 'l'] + '">' +
+        '<i></i>' + esc(KIND_COLOR[k].n) + '</span>').join('') + '</div>';
+
+  const head = legend + '<div class="mtabs" role="group" aria-label="Що показувати">' +
     '<button aria-pressed="' + (tab === 'places') + '" data-tab="places">Місця · ' + places.length + '</button>' +
     '<button aria-pressed="' + (tab === 'routes') + '" data-tab="routes">Маршрути · ' + routes.length + '</button>' +
     '</div>' +
@@ -1767,6 +1843,10 @@ function render() {
      екран — рамка, заголовок і навігація повертаються самі. */
   document.body.classList.toggle('road', !!V.road && V.screen === 'journey');
   document.body.classList.toggle('mapv', V.screen === 'map');
+  /* Позначки й бульбашки скупчень мусять знати, темна під ними
+     підкладка чи світла, — незалежно від того, звідки вона темна. */
+  document.body.classList.toggle('darkmap',
+    V.tiles === 'dark' || (!!V.road && V.screen === 'journey'));
 
   if (LMAP) { try { LMAP.remove(); } catch (e) {} LMAP = null; MEMARK = null; MEACC = null; }
 

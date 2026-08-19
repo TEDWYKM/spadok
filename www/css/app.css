@@ -60,13 +60,47 @@ h1,h2,h3{font-family:"Unbounded",system-ui,sans-serif;font-weight:600;letter-spa
 .leaflet-popup-content-wrapper{border-radius:var(--r-md);background:var(--sheet);box-shadow:var(--shadow)}
 .leaflet-popup-content{margin:11px 13px;font-size:13px}
 .leaflet-bar a{color:var(--ink)!important}
+/* Усі позначки — кружальця; колір закріплений за типом обʼєкта
+   (див. KIND_COLOR у data.js). Біле кільце навколо — не прикраса:
+   саме воно відриває позначку від строкатої карти, тому кольори
+   не мусять поодинці витягувати контраст із плитками. */
 .mk{display:grid;place-items:center}
-.mk i{display:block;width:15px;height:15px;border:1.7px solid var(--ink);background:var(--sheet);
-  transform:rotate(45deg);border-radius:2px}
-.mk.sacral i{border-radius:50%;transform:none}
-.mk.ruin i{clip-path:polygon(50% 0,100% 100%,0 100%);transform:none;border-radius:0}
-.mk.on i{background:var(--verd-dk);border-color:var(--verd-dk)}
-.mk.now i{background:var(--copper);border-color:var(--copper);box-shadow:0 0 0 5px rgba(168,84,43,.22)}
+.mk i{display:grid;place-items:center;width:16px;height:16px;border-radius:50%;background:var(--c,#8B8B8B);
+  border:2.5px solid #fff;box-shadow:0 1px 3px rgba(21,36,46,.45);transition:transform .18s var(--ease)}
+/* Відвідана — те саме коло з білою серцевиною. Спершу тут було біле
+   кільце всередину, і від кольору лишалась смужка в два пікселі:
+   позначка переставала казати, що це за обʼєкт. */
+.mk.on i::after{content:"";width:6px;height:6px;border-radius:50%;background:#fff;
+  box-shadow:0 0 0 1px rgba(21,36,46,.25)}
+/* Поточна ціль подорожі: більша й з пульсом. */
+.mk.now i{width:20px;height:20px;box-shadow:0 1px 3px rgba(21,36,46,.5), 0 0 0 6px rgba(255,255,255,.35)}
+.mk.now{animation:mkpulse 2.2s ease-in-out infinite}
+@keyframes mkpulse{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
+
+/* Скупчення: одне велике коло з кількістю точок під ним. Нейтральне
+   чорнило навмисно — колір типу тут означав би, що вся купа одного
+   типу, а вона зазвичай змішана. Крапка збоку — у купі є відвідані. */
+.mkc{display:grid;place-items:center;border-radius:50%;background:var(--ink);color:var(--sheet);
+  font-family:"Unbounded",sans-serif;font-size:13px;font-weight:600;
+  border:2.5px solid #fff;box-shadow:0 2px 8px rgba(21,36,46,.5);cursor:pointer;position:relative}
+.mkc b{position:absolute;right:-1px;top:-1px;width:9px;height:9px;border-radius:50%;
+  background:var(--verd);border:2px solid #fff}
+/* Темна карта — це не тільки дорожній режим: темну підкладку можна
+   вибрати й на головному екрані. Прив'язка до режиму лишала б
+   бульбашку скупчення чорнильною на чорному, тобто невидимою. */
+body.darkmap .mkc,
+body.darkmap .mk i{border-color:#0B1114}
+body.darkmap .mkc{background:#EAF2F4;color:#0B1114}
+body.darkmap .mkc b{border-color:#0B1114}
+body.darkmap .mk.on i::after{background:#0B1114;box-shadow:0 0 0 1px rgba(255,255,255,.3)}
+
+/* Легенда кольорів. Без неї колір нічого не означає — а значення,
+   що тримається тільки на кольорі, недоступне поза межами зору. */
+.legend{display:flex;flex-wrap:wrap;gap:6px 12px;margin:2px 0 10px}
+.legend span{display:inline-flex;align-items:center;gap:5px;font-family:"IBM Plex Mono",monospace;
+  font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+.legend i{width:10px;height:10px;border-radius:50%;background:var(--c);
+  border:1.5px solid #fff;box-shadow:0 0 0 1px var(--line-2)}
 .mapbar{display:flex;gap:6px;margin:8px 0 4px;align-items:center}
 .mapbar .meta{margin-left:auto}
 .fallback{padding:14px;text-align:center;height:auto!important}

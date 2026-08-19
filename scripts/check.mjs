@@ -36,7 +36,7 @@ const ctx = { console };
 try {
   vm.createContext(ctx);
   new vm.Script(data + '\n;globalThis.__d={POINTS,ROUTES,THEMES,SIZES,BADGES,' +
-    'STATUS_FRESH_DAYS,STATUS_STALE_DAYS,ARRIVE_RADIUS_M};')
+    'STATUS_FRESH_DAYS,STATUS_STALE_DAYS,ARRIVE_RADIUS_M,KIND_COLOR,THEME_COLOR};')
     .runInContext(ctx);
 } catch (e) { bad('data.js не виконався: ' + e.message); }
 
@@ -107,6 +107,24 @@ if (D) {
     if (!refd.includes(id)) bad('точка ' + id + ' зникла з умов нагород у app.js');
   });
   ok('умови нагород сходяться з даними');
+
+  /* Палітра позначок і дані мусять сходитись в обидва боки. Саме ця
+     перевірка знайшла, що Тустань — єдина наскельна фортеця набору —
+     лежала як звичайна руїна, і пʼятий колір не діставався нікому. */
+  const usedKinds = new Set(D.POINTS.map(p => p.kind));
+  Object.keys(D.KIND_COLOR).forEach(k => usedKinds.has(k)
+    ? null
+    : bad('тип ' + k + ' має колір, але жодної точки — колір мертвий'));
+  usedKinds.forEach(k => D.KIND_COLOR[k]
+    ? null
+    : bad('тип ' + k + ' є в точках, але не має кольору'));
+  Object.keys(D.THEMES).forEach(t => D.THEME_COLOR[t]
+    ? null
+    : bad('тема ' + t + ' не має кольору'));
+  const hexes = Object.values(D.KIND_COLOR).map(c => c.l);
+  new Set(hexes).size === hexes.length
+    ? ok('кожен тип має власний колір, і кожен колір комусь дістається')
+    : bad('кольори типів повторюються: ' + hexes.join(', '));
 
   if (!(D.ARRIVE_RADIUS_M > 0)) bad('ARRIVE_RADIUS_M не заданий');
   if (!(D.STATUS_FRESH_DAYS > 0)) bad('STATUS_FRESH_DAYS не заданий');

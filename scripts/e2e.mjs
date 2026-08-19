@@ -580,6 +580,47 @@ const tabRoutes = await evaluate(`
 tabRoutes.ids.length === 9 && tabRoutes.ordered
   ? ok('маршрути в шторці теж від найближчого: ' + tabRoutes.first)
   : bad('маршрути не відсортовані: ' + JSON.stringify(tabRoutes));
+/* Кольори позначок і розпад скупчень. Плитки в цьому середовищі
+   заблоковані, тож Leaflet не піднімається — перевіряємо саму логіку
+   на підставленій проєкції Меркатора, а не картинку. */
+const marks = await evaluate(`
+  const proj = (ll, z) => {
+    const s = 256 * Math.pow(2, z), rad = ll[0] * Math.PI / 180;
+    return { x: (ll[1] + 180) / 360 * s,
+             y: (1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2 * s };
+  };
+  const stub = z => ({ getZoom: () => z, project: (ll, zz) => proj(ll, zz === undefined ? z : zz) });
+  const sizes = z => clusterize(stub(z), POINTS, 58).map(g => g.length).sort((a, b) => b - a);
+  const kinds = Object.keys(KIND_COLOR);
+  const colors = kinds.map(k => KIND_COLOR[k].l);
+  const wasTheme = V.theme;
+  V.theme = 'sacral';
+  const themed = markColor(P('univ'));
+  V.theme = wasTheme;
+  return {
+    far: sizes(8), mid: sizes(11), near: sizes(15),
+    uniqueColors: new Set(colors).size, kinds: kinds.length,
+    perKind: new Set(POINTS.map(p => markColor(p))).size,
+    themed, themeHex: THEME_COLOR.sacral.l
+  };
+`);
+marks.far.length < marks.near.length && marks.far[0] > 1
+  ? ok('на дальньому зумі точки збираються: ' + marks.far.length + ' груп замість ' +
+      marks.near.length + ', найбільша — ' + marks.far[0])
+  : bad('скупчення не збираються: ' + JSON.stringify(marks));
+marks.near.every(n => n === 1)
+  ? ok('на близькому зумі кожна точка окремо')
+  : bad('на близькому зумі точки досі злиплись: ' + JSON.stringify(marks.near));
+marks.uniqueColors === marks.kinds && marks.perKind === marks.kinds
+  ? ok(marks.kinds + ' типів — ' + marks.kinds + ' різних кольорів, без повторів')
+  : bad('кольори типів не унікальні: ' + JSON.stringify(marks));
+marks.themed === marks.themeHex
+  ? ok('під фільтром теми колір береться від теми')
+  : bad('фільтр теми не міняє колір: ' + marks.themed + ' замість ' + marks.themeHex);
+(await count('.legend span')) === 5
+  ? ok('легенда показує всі пʼять типів')
+  : bad('легенда неповна: ' + await count('.legend span'));
+
 await shot('11-home');
 await click('[data-tab="places"]');
 
