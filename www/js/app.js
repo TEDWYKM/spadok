@@ -100,15 +100,34 @@ let V = {
   screen: 'map', theme: 'all', sort: 'pop', size: 'all',
   route: null, idx: 0, t0: 0, sel: null, from: 'map',
   media: 'photo', draftStars: 0, tiles: 'osm',
-  fresh: [], sheet: null, toast: null, swUpdate: false
+  fresh: [], sheet: null, toast: null, swUpdate: false,
+  /* Дорожній режим: повноекранна карта, що їде за користувачем.
+     plan — порядок точок саме цієї подорожі, перебудований під
+     положення на старті; у даних маршрут лишається недоторканим. */
+  road: false, roadBack: false, follow: true, followAnim: false, plan: null
 };
-let MOUNT = null, LMAP = null, LEAFLET = null, MEMARK = null;
+let MOUNT = null, LMAP = null, LEAFLET = null, MEMARK = null, MEACC = null, MOUNTBOUNDS = null;
+/* Трек поточного відрізка і точка, з якої його прокладали:
+   відійшов далеко — перекладаємо. */
+let NAVLINE = null, NAVFROM = null, NAVAT = 0, NAVBUSY = false;
 
 function save() { Store.write(S); }
 
 /* ═════════ УТИЛІТИ ═════════ */
 const P = id => POINTS.find(p => p.id === id);
-const flat = r => r.days.reduce((a, d) => a.concat(d), []);
+
+/* Дні поточної подорожі. Поки подорож не почалась — як у даних.
+   Щойно почалась — беремо порядок, перебудований під старт, щоб
+   екрани маршруту й подорожі не розходились між собою. */
+const planDays = r => (V.plan && V.plan.id === r.id) ? V.plan.days : r.days;
+const flat = r => planDays(r).reduce((a, d) => a.concat(d), []);
+
+/* Приймає і id точки, і сирі координати — щоб трек міг починатися
+   від користувача, а не тільки від пам'ятки. */
+const LL = x => typeof x === 'string' ? [P(x).lat, P(x).lon] : [x.lat, x.lon];
+const fmtM = m => m == null ? '—'
+  : m < 1000 ? m + ' м'
+    : (m / 1000).toFixed(m < 10000 ? 1 : 0).replace('.', ',') + ' км';
 
 function esc(s) {
   return String(s).replace(/[&<>"']/g, c =>
@@ -125,6 +144,67 @@ function dist(a, b) {
 }
 const distM = (a, b) => dist(a, b) * 1000;
 
+/* Азимут з a на b, градуси від півночі за годинниковою.
+   Карта тримається північчю вгору, тому цей кут — це буквально
+   той напрямок, у який стрілка дивиться на екрані. */
+function bearing(a, b) {
+  const rad = x => x * Math.PI / 180, deg = x => x * 180 / Math.PI;
+  const dLon = rad(b.lon - a.lon);
+  const y = Math.sin(dLon) * Math.cos(rad(b.lat));
+  const x = Math.cos(rad(a.lat)) * Math.sin(rad(b.lat)) -
+    Math.sin(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.cos(dLon);
+  return (deg(Math.atan2(y, x)) + 360) % 360;
+}
+
+/* Довжина дня: старт → точки по черзі → повернення до бази.
+   Саме з поверненням, інакше «оптимізація» жене вас у дальній кут
+   області, звідки ввечері доведеться вертатись через усе. */
+function dayLen(from, ids, base) {
+  let km = 0, cur = from;
+  for (const id of ids) { km += dist(cur, P(id)); cur = P(id); }
+  return km + dist(cur, base);
+}
+
+/* Порядок точок дня під ваш старт. Днів більше ніж на 5 точок у нас
+   немає, тож перебираємо всі перестановки й беремо найкоротшу —
+   це швидше, ніж здається, і чесніше за жадібний обхід, який на
+   близьких відстанях легко обирає гірший варіант.
+
+   Важливо: за початковий приймаємо авторський порядок. Тому при
+   рівних довжинах — а для кільця з поверненням до бази прямий
+   і зворотний обхід рівні завжди — лишається той, який задумали
+   в маршруті. Перестановка має рятувати від гака, а не тасувати
+   точки просто тому, що може. */
+function orderDay(ids, from, base) {
+  if (ids.length < 2) return ids.slice();
+  let best = ids.slice(), bestKm = dayLen(from, ids, base);
+  if (ids.length > 7) return best;
+
+  const walk = (left, acc) => {
+    if (!left.length) {
+      const km = dayLen(from, acc, base);
+      if (km < bestKm - 0.05) { bestKm = km; best = acc.slice(); }
+      return;
+    }
+    for (let i = 0; i < left.length; i++)
+      walk(left.slice(0, i).concat(left.slice(i + 1)), acc.concat(left[i]));
+  };
+  walk(ids, []);
+  return best;
+}
+
+/* План подорожі. Переставляємо тільки всередині дня — ночівля
+   прив'язана до бази, тож дні між собою не перемішуються.
+   Під старт підлаштовується лише перший день: у наступні ви
+   виїжджаєте з бази, а не з того місця, де були вчора ввечері. */
+function buildPlan(r, from, byGps) {
+  const base = P(r.from);
+  const days = r.ord
+    ? r.days.map(d => d.slice())
+    : r.days.map((d, i) => orderDay(d, i === 0 ? from : base, base));
+  return { id: r.id, days, byGps: !!byGps, ord: !!r.ord };
+}
+
 function dayKm(r, d) {
   const chain = [P(r.from)].concat(d.map(P), [P(r.from)]);
   let k = 0;
@@ -135,7 +215,7 @@ function dayKm(r, d) {
 function routeStats(r) {
   const st = flat(r);
   let km = 0;
-  r.days.forEach(d => { km += dayKm(r, d); });
+  planDays(r).forEach(d => { km += dayKm(r, d); });
   const min = Math.round(km / CONFIG.avgSpeedKmh * 60) + st.length * CONFIG.minutesPerStop;
   const near = st.reduce((a, id) => {
     const p = P(id);
@@ -145,7 +225,7 @@ function routeStats(r) {
   return {
     km, min, near,
     stops: st.length,
-    days: r.days.length,
+    days: planDays(r).length,
     warn: st.some(id => P(id).st === 'warn'),
     blocked: st.filter(id => !routable(P(id))),
     /* Застарілі — це середній ярус: точка ще в маршруті, але з позначкою.
@@ -213,18 +293,20 @@ function blockedWhy(ids) {
 
 /* Індекс дня, у якому лежить зупинка за наскрізним номером. */
 function dayOf(r, i) {
+  const days = planDays(r);
   let c = 0;
-  for (let d = 0; d < r.days.length; d++) {
-    c += r.days[d].length;
+  for (let d = 0; d < days.length; d++) {
+    c += days[d].length;
     if (i < c) return d;
   }
-  return r.days.length - 1;
+  return days.length - 1;
 }
 /* Перша зупинка дня в наскрізній нумерації — потрібно, щоб відстань
    рахувалася від бази, а не від останньої точки попереднього дня. */
 function dayStart(r, di) {
+  const days = planDays(r);
   let c = 0;
-  for (let d = 0; d < di; d++) c += r.days[d].length;
+  for (let d = 0; d < di; d++) c += days[d].length;
   return c;
 }
 
@@ -256,7 +338,17 @@ const Geo = {
 
     const ok = p => {
       const c = p.coords || p;
-      this.pos = { lat: c.latitude, lon: c.longitude, acc: c.accuracy, at: Date.now() };
+      const next = {
+        lat: c.latitude, lon: c.longitude, acc: c.accuracy, at: Date.now(),
+        /* Швидкість і курс GPS віддає тільки в русі. Коли їх немає —
+           рахуємо курс самі, але лише при зсуві більшому за похибку:
+           інакше стрілка крутилася б від дрижання сигналу на місці. */
+        spd: (typeof c.speed === 'number' && c.speed >= 0) ? c.speed : null,
+        hdg: (typeof c.heading === 'number' && !isNaN(c.heading)) ? c.heading : null
+      };
+      if (next.hdg == null && this.pos)
+        next.hdg = distM(this.pos, next) > 12 ? bearing(this.pos, next) : this.pos.hdg;
+      this.pos = next;
       this.state = 'live';
       this.emit();
     };
@@ -355,8 +447,27 @@ const TILES = {
     u: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
     a: '&copy; OpenStreetMap, &copy; CARTO',
     n: 'Світла', sub: 'abcd'
+  },
+  /* Темна підкладка вмикається сама в дорожньому режимі: вночі за
+     кермом світла карта засвічує лобове скло. Вибрати її вручну теж
+     можна — вона просто третьою у смузі стилів. */
+  dark: {
+    u: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+    a: '&copy; OpenStreetMap, &copy; CARTO',
+    n: 'Темна', sub: 'abcd'
   }
 };
+
+/* Наскільки близько тримати камеру. Пішки треба бачити двір,
+   на трасі — наступний поворот за кілометр. */
+function navZoom(spd, toNext) {
+  if (toNext != null && toNext < 350) return 17;
+  if (spd == null) return 15;
+  if (spd < 1.5) return 17;
+  if (spd < 8) return 16;
+  if (spd < 18) return 15;
+  return 14;
+}
 
 async function mountMap() {
   if (!MOUNT) return;
@@ -368,12 +479,24 @@ async function mountMap() {
   if (LMAP) { try { LMAP.remove(); } catch (e) {} LMAP = null; }
 
   let map;
-  try { map = L.map(el, { zoomControl: true, scrollWheelZoom: false }); }
+  try {
+    map = L.map(el, {
+      zoomControl: !cfg.nav, scrollWheelZoom: false,
+      attributionControl: true
+    });
+  }
   catch (e) { el.classList.add('fallback'); el.innerHTML = fallbackSVG(cfg); return; }
   LMAP = map;
-  MEMARK = null;
+  MEMARK = null; MEACC = null; NAVLINE = null; NAVFROM = null;
 
-  const t = TILES[V.tiles];
+  /* Щойно користувач сам потягнув карту — перестаємо її смикати.
+     Повернути слідування можна кнопкою, і тільки нею: інакше
+     камера воювала б із рукою. */
+  if (cfg.nav) map.on('dragstart zoomstart', e => {
+    if (e.type === 'dragstart' || !V.followAnim) setFollow(false);
+  });
+
+  const t = TILES[cfg.nav ? 'dark' : V.tiles];
   const layer = L.tileLayer(t.u, {
     attribution: t.a, maxZoom: 18, subdomains: t.sub || 'abc'
   }).addTo(map);
@@ -415,11 +538,13 @@ async function mountMap() {
   if (cfg.legs && cfg.legs.length) {
     const colors = ['#1C5849', '#A8542B', '#2E7D6C', '#B08417'];
     cfg.legs.forEach((leg, i) => {
-      const chain = leg.map(id => [P(id).lat, P(id).lon]);
-      const line = L.polyline(chain, {
-        color: colors[i % 4], weight: 3.4, opacity: .85, dashArray: '8 6'
-      }).addTo(map);
+      const chain = leg.map(LL);
+      const line = L.polyline(chain, cfg.nav
+        ? { color: '#3FD9B6', weight: 6, opacity: .9, lineCap: 'round', lineJoin: 'round', dashArray: '10 8' }
+        : { color: colors[i % 4], weight: 3.4, opacity: .85, dashArray: '8 6' }
+      ).addTo(map);
       bounds.extend(line.getBounds());
+      if (cfg.nav && i === 0) { NAVLINE = line; NAVFROM = { lat: chain[0][0], lon: chain[0][1] }; }
       roadRoute(chain).then(geo => {
         if (geo && LMAP === map) {
           line.setLatLngs(geo);
@@ -434,18 +559,71 @@ async function mountMap() {
   /* Своя позиція, якщо геолокація вже дала фікс. */
   if (Geo.pos) drawMe(map);
 
-  try { map.fitBounds(bounds.pad(.18)); }
-  catch (e) { map.setView([49.84, 24.03], 8); }
+  if (cfg.nav && Geo.pos) {
+    map.setView([Geo.pos.lat, Geo.pos.lon], navZoom(Geo.pos.spd, cfg.toNext));
+  } else {
+    try { map.fitBounds(bounds.pad(.18)); }
+    catch (e) { map.setView([49.84, 24.03], 8); }
+  }
+  MOUNTBOUNDS = bounds;
   setTimeout(() => { try { map.invalidateSize(); } catch (e) {} }, 150);
 }
 
+/* Своя позначка. Трикутник дивиться туди, куди ти рухаєшся; коли
+   курсу немає — стає крапкою, щоб не вигадувати напрямок.
+   Коло навколо — це похибка сигналу, а не радіус прибуття. */
 function drawMe(map) {
   if (!Geo.pos || !window.L) return;
   const ll = [Geo.pos.lat, Geo.pos.lon];
-  if (MEMARK) { try { MEMARK.setLatLng(ll); return; } catch (e) {} }
-  MEMARK = L.circleMarker(ll, {
-    radius: 6, color: '#15242E', weight: 2, fillColor: '#A8542B', fillOpacity: 1
-  }).addTo(map).bindPopup('Ви тут');
+  const hdg = Geo.pos.hdg;
+  const icon = L.divIcon({
+    className: '',
+    html: '<div class="me' + (hdg == null ? ' flat' : '') + '"' +
+      (hdg == null ? '' : ' style="transform:rotate(' + Math.round(hdg) + 'deg)"') +
+      '><svg viewBox="0 0 24 24"><path d="M12 2.5l7.5 18.5L12 17l-7.5 4z"/></svg></div>',
+    iconSize: [30, 30], iconAnchor: [15, 15]
+  });
+  if (MEMARK) {
+    try { MEMARK.setLatLng(ll); MEMARK.setIcon(icon); }
+    catch (e) { MEMARK = null; }
+  }
+  if (!MEMARK) MEMARK = L.marker(ll, { icon, zIndexOffset: 1000 }).addTo(map).bindPopup('Ви тут');
+
+  const acc = Math.round(Geo.pos.acc || 0);
+  if (acc > 15) {
+    if (MEACC) { try { MEACC.setLatLng(ll); MEACC.setRadius(acc); } catch (e) { MEACC = null; } }
+    if (!MEACC) MEACC = L.circle(ll, {
+      radius: acc, color: '#16B8C8', weight: 1, opacity: .35, fillOpacity: .1
+    }).addTo(map);
+  } else if (MEACC) {
+    try { map.removeLayer(MEACC); } catch (e) {}
+    MEACC = null;
+  }
+}
+
+/* Слідування вмикається й вимикається в одному місці, щоб кнопка
+   і жест руки не розходились у стані. */
+function setFollow(on) {
+  if (V.follow === on) return;
+  V.follow = on;
+  const b = document.getElementById('rfollow');
+  if (b) {
+    b.setAttribute('aria-pressed', String(on));
+    b.classList.toggle('solid', on);
+  }
+}
+
+/* Камера за користувачем. Окремий прапорець, щоб власний setView
+   не був сприйнятий як «користувач сам крутнув карту». */
+function followMe() {
+  if (!LMAP || !Geo.pos || !V.follow) return;
+  const cur = navTarget();
+  V.followAnim = true;
+  try {
+    LMAP.setView([Geo.pos.lat, Geo.pos.lon],
+      navZoom(Geo.pos.spd, cur ? Geo.metersTo(cur) : null), { animate: true, duration: .5 });
+  } catch (e) {}
+  setTimeout(() => { V.followAnim = false; }, 700);
 }
 
 async function roadRoute(chain) {
@@ -461,6 +639,12 @@ async function roadRoute(chain) {
 
 /* Схема на випадок, коли онлайн-карта недоступна. */
 function fallbackSVG(cfg) {
+  /* Та сама схема, але в дорожньому режимі — світлим по темному:
+     інакше підписи зливаються з тлом і схема нічого не пояснює. */
+  const dk = !!cfg.nav;
+  const ink = dk ? '#EAF2F4' : '#15242E';
+  const fill = dk ? '#0B1114' : '#F2F1E9';
+  const done = dk ? '#3FD9B6' : '#1C5849';
   const la = cfg.points.map(p => p.lat), lo = cfg.points.map(p => p.lon);
   const b = {
     y0: Math.min.apply(null, la) - .08, y1: Math.max.apply(null, la) + .08,
@@ -468,14 +652,19 @@ function fallbackSVG(cfg) {
   };
   const X = l => ((l - b.x0) / (b.x1 - b.x0 || 1) * 520 + 20).toFixed(1);
   const Y = l => ((b.y1 - l) / (b.y1 - b.y0 || 1) * 250 + 20).toFixed(1);
+  /* Ланка відрізка — або точка маршруту, або ваші координати:
+     трек починається від вас, а не завжди від пам'ятки. */
   const legs = (cfg.legs || []).map(leg =>
-    '<path d="' + leg.map((id, i) => (i ? 'L' : 'M') + X(P(id).lon) + ' ' + Y(P(id).lat)).join(' ') +
-    '" fill="none" stroke="#A8542B" stroke-width="2" stroke-dasharray="7 5"/>').join('');
+    '<path d="' + leg.map((x, i) => {
+      const c = LL(x);
+      return (i ? 'L' : 'M') + X(c[1]) + ' ' + Y(c[0]);
+    }).join(' ') +
+    '" fill="none" stroke="' + (dk ? '#3FD9B6' : '#A8542B') + '" stroke-width="2" stroke-dasharray="7 5"/>').join('');
   const pins = cfg.points.map(p =>
     '<g><circle cx="' + X(p.lon) + '" cy="' + Y(p.lat) + '" r="6" fill="' +
-    (S.visits[p.id] ? '#1C5849' : '#F2F1E9') + '" stroke="#15242E" stroke-width="1.6"/>' +
+    (S.visits[p.id] ? done : fill) + '" stroke="' + ink + '" stroke-width="1.6"/>' +
     '<text x="' + (+X(p.lon) + 10) + '" y="' + (+Y(p.lat) + 4) + '" font-size="9.5" ' +
-    'font-family="IBM Plex Mono,monospace" fill="#15242E">' +
+    'font-family="IBM Plex Mono,monospace" fill="' + ink + '">' +
     esc(p.n.split(',')[0]) + '</text></g>').join('');
   return '<div class="alert" style="margin:0 0 10px">Карта недоступна без мережі — показано схему. ' +
     'Завантажте маршрут для офлайну, і плитки OpenStreetMap працюватимуть без зв’язку.</div>' +
@@ -652,7 +841,7 @@ function scrRoute() {
      чия перевірка статусу протухла — routable() перевіряє обидва. */
   MOUNT = {
     points: flat(r).map(P),
-    legs: r.days.map(d => [r.from].concat(d.filter(id => routable(P(id))), [r.from]))
+    legs: planDays(r).map(d => [P(r.from)].concat(d.filter(id => routable(P(id))).map(P), [P(r.from)]))
   };
   const off = S.offline.indexOf(r.id) > -1;
 
@@ -672,7 +861,7 @@ function scrRoute() {
     '<span class="meta">' + s.near.shop + ' магазинів</span>' +
     '<span class="meta">' + s.near.stay + ' ночівель</span>' +
     '<span class="meta">' + s.near.food + ' закладів їжі</span></div>' +
-    r.days.map((d, di) => '<div class="dayhead"><b>День ' + (di + 1) + '</b><span class="meta">' +
+    planDays(r).map((d, di) => '<div class="dayhead"><b>День ' + (di + 1) + '</b><span class="meta">' +
       dayKm(r, d) + ' км · ' + d.length + ' зупинок</span></div><ul class="stops">' +
       d.map((id, i) => {
         const p = P(id);
@@ -691,30 +880,122 @@ function scrRoute() {
     dmy(flat(r).map(id => P(id).upd).sort()[0]) + '</p></div>';
 }
 
+/* Точка, до якої зараз їдемо. Одна на весь застосунок, щоб карта,
+   плашка й перерахунок треку не розходились між собою. */
+function navTarget() {
+  if (V.screen !== 'journey' || !V.route) return null;
+  const r = ROUTES.find(x => x.id === V.route);
+  if (!r) return null;
+  const st = flat(r);
+  return st[V.idx] ? P(st[V.idx]) : null;
+}
+
+/* Звідки веде трек до поточної точки: від вас, якщо подорож щойно
+   почалась і GPS дав фікс, інакше від попередньої зупинки або бази. */
+function legOrigin(r, st) {
+  const d = dayOf(r, V.idx);
+  if (V.idx !== dayStart(r, d)) return P(st[V.idx - 1]);
+  if (Geo.pos && V.plan && V.plan.byGps && d === 0) return Geo.pos;
+  return P(r.from);
+}
+
+/* Решта дня від поточної точки — і саме її ми малюємо треком,
+   а не весь маршрут: позаду вже проїхане. */
+function restOfDay(r) {
+  const d = dayOf(r, V.idx);
+  const day = planDays(r)[d];
+  const from = V.idx - dayStart(r, d);
+  return day.slice(from).filter(id => routable(P(id))).map(P);
+}
+
 function scrJourney() {
   const r = ROUTES.find(x => x.id === V.route), st = flat(r), cur = P(st[V.idx]);
   const d = dayOf(r, V.idx);
-  const prev = V.idx === dayStart(r, d) ? P(r.from) : P(st[V.idx - 1]);
-  const km = Math.round(dist(prev, cur));
+  const origin = legOrigin(r, st);
+  const rest = restOfDay(r);
+  const chain = [origin].concat(rest, [P(r.from)]);
+
   MOUNT = {
     points: st.map(P),
-    legs: [[r.from].concat(r.days[d].filter(id => routable(P(id))), [r.from])],
-    now: cur.id
+    legs: [chain],
+    now: cur.id,
+    nav: V.road,
+    toNext: Geo.metersTo(cur)
   };
+  return V.road ? roadView(r, st, cur, d, chain) : cardView(r, st, cur, d, origin);
+}
+
+/* ── Дорожній режим ─────────────────────────────────────────────────
+   Повний екран, карта їде за вами, зайве прибрано. Це супровід,
+   а не навігатор: обʼїздів, трафіку й голосу тут немає і не буде —
+   для них є кнопка передачі в Google Maps або Waze.              */
+function roadView(r, st, cur, d, chain) {
+  const m = Geo.metersTo(cur);
+  const brg = Geo.pos ? Math.round(bearing(Geo.pos, cur)) : 0;
+  const next = st[V.idx + 1] ? P(st[V.idx + 1]) : null;
+  const left = chain.slice(1).reduce((a, p, i) => a + dist(chain[i], p), 0);
+  const mins = Math.round(left / CONFIG.avgSpeedKmh * 60) + restOfDay(r).length * CONFIG.minutesPerStop;
+
+  return '<div class="roadv">' +
+    '<div class="rtop">' +
+    '<span class="rarrow"><svg id="rarrow" viewBox="0 0 24 24" ' +
+    'style="transform:rotate(' + brg + 'deg)"><path d="M12 20V4M12 4l-6 6M12 4l6 6"/></svg></span>' +
+    '<span class="rhead"><span class="rdist" id="rdist">' + fmtM(m) + '</span>' +
+    '<span class="rname">' + esc(cur.n) + '</span></span>' +
+    '<button class="rclose" data-act="road-off" aria-label="Вийти з дорожнього режиму">' +
+    '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>' +
+    '<div class="rnext' + (Geo.state === 'live' ? '' : ' rwarn') + '" id="rnext">' +
+    (Geo.state === 'live'
+      ? (next ? 'далі <b>' + esc(next.n) + '</b>' : 'остання зупинка дня')
+      : 'сигналу немає <b>карта не веде без геолокації</b>') + '</div>' +
+    '<div id="lmap" class="lmap"></div>' +
+    '<div class="rbot">' +
+    '<button class="rbtn round' + (V.follow ? ' solid' : '') + '" id="rfollow" data-act="follow" ' +
+    'aria-pressed="' + V.follow + '" aria-label="Слідувати за мною">' +
+    '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>' +
+    '</button>' +
+    '<span class="reta"><b id="reta">' + hhmm(mins) + '</b>' +
+    '<span>' + Math.round(left) + ' км до кінця дня</span></span>' +
+    '<button class="rbtn round" data-act="extnav" aria-label="Вести в навігаторі">' +
+    '<svg viewBox="0 0 24 24"><path d="M12 2l9 20-9-5-9 5z"/></svg></button>' +
+    '<button class="rbtn" data-act="overview">Огляд</button></div></div>';
+}
+/* ── Карткова подорож: те саме, але для читання, а не для керма ── */
+function cardView(r, st, cur, d, origin) {
+  const km = Math.round(dist(origin, cur));
   const here = Geo.atPoint(cur);
   const live = Geo.state === 'live';
+  const fromMe = origin === Geo.pos;
+  /* «Перебудовано» пишемо тільки тоді, коли порядок справді змінився.
+     Для кільця з поверненням до бази авторський обхід часто вже
+     найкоротший — і сказати «перебудовано» означало б приписати собі
+     роботу, якої не було. */
+  const shuffled = V.plan && !V.plan.ord && V.plan.byGps &&
+    planDays(r).some((day, i) => day.join() !== r.days[i].join());
 
   /* «з» у верхньому регістрі моношрифтом не відрізнити від трійки,
      тому в підписах-eyebrow дроби пишемо скісною рискою. */
   return '<div><div id="lmap" class="lmap"></div>' + mapBar() +
     '<div style="margin-top:12px">' + geoBar(cur) + '</div>' +
-    '<div class="card"><span class="eyebrow">День ' + (d + 1) + ' / ' + r.days.length +
+    '<div class="card"><span class="eyebrow">День ' + (d + 1) + ' / ' + planDays(r).length +
     ' · зупинка ' + (V.idx + 1) + ' / ' + st.length + '</span>' +
     '<h2 style="font-size:19px;margin:8px 0 6px">' + esc(cur.n) + '</h2>' +
     '<div class="row" style="gap:14px;flex-wrap:wrap"><span class="meta">' +
-    esc(prev.n.split(',')[0]) + ' → ' + km + ' км</span>' +
+    (fromMe ? 'від вас' : esc(origin.n.split(',')[0])) + ' → ' + km + ' км</span>' +
     '<span class="meta">~' + Math.round(km / CONFIG.avgSpeedKmh * 60) + ' хв</span>' +
-    stTag(cur) + '</div></div>' +
+    stTag(cur) + '</div>' +
+    '<p class="meta" style="margin:9px 0 0;line-height:1.45">' +
+    (V.plan && V.plan.ord
+      ? 'Порядок точок цього маршруту сюжетний і не переставляється.'
+      : shuffled
+        ? 'Порядок точок дня перебудовано під ваше положення на старті.'
+        : V.plan && V.plan.byGps
+          ? 'Порядок дня звірено з вашим положенням — авторський виявився найкоротшим.'
+          : 'Старт від бази: без геолокації переставляти порядок нема від чого.') +
+    '</p></div>' +
+    '<button class="btn go" data-act="road-on">У дорогу</button>' +
+    '<button class="btn ghost" style="margin-top:8px" data-act="extnav">Вести в навігаторі</button>' +
+    '<div class="rule"></div>' +
     (here
       ? '<button class="btn go" data-act="arrive-gps">Відкрити пам’ятку</button>'
       : live
@@ -801,7 +1082,7 @@ function scrFinish() {
   const freshB = V.fresh || [];
   MOUNT = {
     points: flat(r).map(P),
-    legs: r.days.map(d => [r.from].concat(d.filter(id => routable(P(id))), [r.from]))
+    legs: planDays(r).map(d => [P(r.from)].concat(d.filter(id => routable(P(id))).map(P), [P(r.from)]))
   };
   return '<div style="text-align:center">' +
     '<div style="font-size:34px;margin:10px 0 4px;color:var(--verd-dk)">◆</div>' +
@@ -956,7 +1237,96 @@ function openPoint(id, from) {
 }
 
 function openRoute(id) { V.route = id; go('route'); }
-function startJourney() { V.idx = 0; V.t0 = Date.now(); V.fresh = []; Geo.start(); go('journey'); }
+
+function startJourney() {
+  const r = ROUTES.find(x => x.id === V.route);
+  V.idx = 0; V.t0 = Date.now(); V.fresh = [];
+  V.road = false; V.follow = true;
+  Geo.start();
+  /* Плану вистачає того, що є зараз: без фікса стартуємо від бази,
+     а щойно GPS відгукнеться — перебудуємо, поки нікуди не поїхали. */
+  V.plan = buildPlan(r, Geo.pos || P(r.from), !!Geo.pos);
+  go('journey');
+}
+
+/* Перебудова плану після появи сигналу. Тільки на нульовій зупинці
+   й тільки поки в цій подорожі нічого не відвідано: переставляти
+   порядок посеред дороги означало б водити людину колами. */
+function replanFromGps() {
+  if (!V.route || !Geo.pos || V.idx !== 0) return false;
+  const r = ROUTES.find(x => x.id === V.route);
+  if (!r || !V.plan || V.plan.byGps) return false;
+  if (flat(r).some(id => S.visits[id] && S.visits[id].at >= V.t0)) return false;
+  V.plan = buildPlan(r, Geo.pos, true);
+  return true;
+}
+
+function roadMode(on) {
+  V.road = on;
+  V.follow = true;
+  render();
+}
+
+/* Покрокові підказки — робота навігатора. Ми віддаємо йому точку
+   й відходимо: трафік, обʼїзди й голос там уже зроблені як слід. */
+function extNav() {
+  const cur = navTarget();
+  if (!cur) return;
+  const ll = cur.lat.toFixed(5) + ',' + cur.lon.toFixed(5);
+  sheet({
+    title: 'Вести до точки',
+    text: esc(cur.n) + '. Спадок веде оглядово; покрокові підказки, обʼїзди й голос — у навігаторі.',
+    options: [
+      { label: 'Google Maps', hint: 'маршрут авто' },
+      { label: 'Waze', hint: 'трафік і камери' },
+      { label: 'Скопіювати координати', hint: ll }
+    ],
+    onPick(_, i) {
+      closeSheet();
+      if (i === 2) {
+        const done = () => toast('Координати скопійовано', ll);
+        if (navigator.clipboard && navigator.clipboard.writeText)
+          navigator.clipboard.writeText(ll).then(done, () => toast('Не вийшло скопіювати', ll));
+        else toast('Координати точки', ll);
+        return;
+      }
+      const url = i === 0
+        ? 'https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=' + ll
+        : 'https://waze.com/ul?navigate=yes&ll=' + ll;
+      try { window.open(url, '_blank', 'noopener'); }
+      catch (e) { toast('Не вдалося відкрити навігатор', ll); }
+    }
+  });
+}
+
+/* Показати весь залишок дня цілком. Слідування при цьому вимикається:
+   інакше наступний фікс GPS одразу вкинув би камеру назад. */
+function overview() {
+  setFollow(false);
+  if (LMAP && MOUNTBOUNDS) {
+    try { LMAP.fitBounds(MOUNTBOUNDS.pad(.18)); } catch (e) {}
+  }
+}
+
+/* Відхилення від треку. Перекладаємо не частіше ніж раз на 15 секунд
+   і тільки коли справді відійшли — демо-сервер OSRM без гарантій,
+   смикати його на кожен фікс не можна. */
+function maybeReroute() {
+  if (!V.road || !LMAP || !NAVLINE || !Geo.pos || NAVBUSY) return;
+  if (!NAVFROM || distM(Geo.pos, NAVFROM) < 150) return;
+  if (Date.now() - NAVAT < 15000) return;
+  const r = ROUTES.find(x => x.id === V.route);
+  if (!r) return;
+  NAVBUSY = true; NAVAT = Date.now();
+  const chain = [Geo.pos].concat(restOfDay(r), [P(r.from)]).map(LL);
+  const line = NAVLINE, map = LMAP;
+  roadRoute(chain).then(geo => {
+    NAVBUSY = false;
+    if (LMAP !== map || NAVLINE !== line) return;
+    NAVFROM = { lat: Geo.pos.lat, lon: Geo.pos.lon };
+    try { line.setLatLngs(geo || chain); line.setStyle({ dashArray: geo ? null : '10 8' }); } catch (e) {}
+  }, () => { NAVBUSY = false; });
+}
 
 /* Реєстрація відвідин. verified_by — головне поле: від нього
    залежить, чи прийметься оцінка, і як виглядає штамп. */
@@ -977,12 +1347,19 @@ function arrive(by) {
   }
   registerVisit(id, by);
   if (by === 'manual') toast('Відвідини зараховано вручну', 'Штамп позначено як ручне підтвердження.');
+  /* Картку пам'ятки читають, а не ведуть по ній: з дорожнього режиму
+     виходимо, але памʼятаємо, щоб повернути після «Продовжити». */
+  V.roadBack = V.road; V.road = false;
   openPoint(id, 'journey');
 }
 
 function continueJourney() {
   const r = ROUTES.find(x => x.id === V.route);
-  if (V.idx < flat(r).length - 1) { V.idx++; go('journey'); }
+  if (V.idx < flat(r).length - 1) {
+    V.idx++;
+    if (V.roadBack) { V.road = true; V.follow = true; V.roadBack = false; }
+    go('journey');
+  }
   else {
     if (S.done.indexOf(r.id) < 0) S.done.push(r.id);
     V.fresh = checkBadges();
@@ -1167,7 +1544,11 @@ function render() {
       'stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>' : '') +
     '<div><h1>' + T[0] + '</h1>' + (T[1] ? '<div class="sub">' + T[1] + '</div>' : '') + '</div>';
 
-  if (LMAP) { try { LMAP.remove(); } catch (e) {} LMAP = null; MEMARK = null; }
+  /* Дорожній режим існує тільки на екрані подорожі: пішов на інший
+     екран — рамка, заголовок і навігація повертаються самі. */
+  document.body.classList.toggle('road', !!V.road && V.screen === 'journey');
+
+  if (LMAP) { try { LMAP.remove(); } catch (e) {} LMAP = null; MEMARK = null; MEACC = null; }
 
   const screens = {
     map: scrMap, routes: scrRoutes, route: scrRoute, journey: scrJourney,
@@ -1212,9 +1593,14 @@ function onTap(e) {
     case 'sort': V.sort = V.sort === 'pop' ? 'near' : 'pop'; render(); break;
     case 'geo-on': Geo.start(); render(); break;
     case 'start': startJourney(); break;
+    case 'road-on': roadMode(true); break;
+    case 'road-off': roadMode(false); break;
+    case 'follow': setFollow(!V.follow); followMe(); break;
+    case 'overview': overview(); break;
+    case 'extnav': extNav(); break;
     case 'arrive-gps': arrive('gps'); break;
     case 'arrive-manual': arrive('manual'); break;
-    case 'abort': go('routes'); break;
+    case 'abort': V.road = false; go('routes'); break;
     case 'continue': continueJourney(); break;
     case 'review': saveReview(V.sel); break;
     case 'report': report(); break;
@@ -1257,12 +1643,31 @@ function boot() {
     if (LMAP && Geo.pos) drawMe(LMAP);
 
     if (V.screen === 'journey' && V.route) {
+      /* Перший фікс міг прийти вже після старту — тоді порядок точок
+         перебудовується під нього, поки подорож ще нікуди не зрушила. */
+      if (replanFromGps()) { render(); return; }
+
       const cur = P(flat(ROUTES.find(x => x.id === V.route))[V.idx]);
       const here = Geo.atPoint(cur);
       /* Автоматичне прибуття: спека обіцяє, що картка відкриється сама. */
       if (here && !lastHere) { lastHere = true; arrive('gps'); return; }
       if (!here) lastHere = false;
       if (stateChanged) { render(); return; }
+
+      if (V.road) {
+        /* Повний render() коштував би перебудови карти й миготіння
+           на кожну секунду руху. Тому рухаємо камеру й оновлюємо
+           лише те, що змінилось: число і стрілку. */
+        followMe();
+        maybeReroute();
+        const dEl = document.getElementById('rdist');
+        if (dEl) dEl.textContent = fmtM(Geo.metersTo(cur));
+        const aEl = document.getElementById('rarrow');
+        if (aEl && Geo.pos)
+          aEl.style.transform = 'rotate(' + Math.round(bearing(Geo.pos, cur)) + 'deg)';
+        return;
+      }
+
       const bar = document.querySelector('.geo');
       if (bar) bar.outerHTML = geoBar(cur);
       return;

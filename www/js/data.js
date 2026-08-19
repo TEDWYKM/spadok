@@ -128,7 +128,12 @@ const ROUTES=[
         ['potelych','olesko','pidhirtsi','brody'],
         ['pidkamin','zolochiv','pomoriany','univ'],
         ['svirzh','stareselo','stilske','drohobych']],from:'rynok'},
+ /* ord:true — порядок точок і є змістом маршруту, тут він хронологічний:
+    давньоруське городище → середньовічний замок → бастіонна фортеця.
+    Такі маршрути не переставляються під положення користувача,
+    інакше від задуму лишається просто набір точок поруч. */
  {id:'defense',n:'Оборонна дуга',size:'l',why:'Від давньоруського городища до бастіонної фортеці — еволюція укріплень',
+  ord:true,
   days:[['stilske','stareselo','vysokyi'],
         ['zhovkva','krekhiv','potelych'],
         ['olesko','pidhirtsi','brody','pidkamin']],from:'rynok'}

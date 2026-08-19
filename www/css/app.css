@@ -1,18 +1,30 @@
 :root{
   --ink:#15242E; --ink-2:#3A5060; --ink-3:#6D8091;
-  --sheet:#F2F1E9; --stone:#DFDFD3;
+  --sheet:#F2F1E9; --stone:#DFDFD3; --card:#FAF9F3;
   --verd:#2E7D6C; --verd-dk:#1C5849;
   --copper:#A8542B; --gold:#B08417;
   --line:rgba(21,36,46,.14); --line-2:rgba(21,36,46,.28);
-  --shadow:0 1px 0 rgba(21,36,46,.08), 0 12px 32px -18px rgba(21,36,46,.5);
+
+  /* Радіуси зібрані в систему: «круглість» продукту крутиться одним
+     місцем, а не двадцятьма числами, розкиданими по файлу. */
+  --r-xs:9px; --r-sm:13px; --r-md:17px; --r-lg:22px; --r-xl:28px; --r-pill:999px;
+
+  --shadow:0 1px 0 rgba(21,36,46,.05), 0 18px 42px -24px rgba(21,36,46,.45);
+  --shadow-sm:0 1px 2px rgba(21,36,46,.04), 0 8px 20px -14px rgba(21,36,46,.38);
+  --ease:cubic-bezier(.2,.8,.3,1);
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{margin:0;background:transparent;font-family:"IBM Plex Sans",system-ui,sans-serif;color:var(--ink)}
-button{font:inherit;color:inherit;cursor:pointer;border:none;background:none}
+button{font:inherit;color:inherit;cursor:pointer;border:none;background:none;
+  transition:transform .16s var(--ease), background-color .16s var(--ease),
+             border-color .16s var(--ease), opacity .16s var(--ease)}
+button:active:not(:disabled){transform:scale(.97)}
+/* Рух — прикраса, а не сенс. Кому він заважає, тому його немає. */
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
 h1,h2,h3{font-family:"Unbounded",system-ui,sans-serif;font-weight:600;letter-spacing:-.02em;margin:0}
 
 .frame{max-width:430px;margin:0 auto;background:var(--sheet);border:1px solid var(--line-2);
-  border-radius:20px;overflow:hidden;box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:780px}
+  border-radius:var(--r-xl);overflow:hidden;box-shadow:var(--shadow);display:flex;flex-direction:column;min-height:780px}
 
 /* На справжньому телефоні рамка-макет зникає: застосунок займає весь екран,
    з урахуванням «врізок» під шторку статусу й жести. */
@@ -27,11 +39,11 @@ h1,h2,h3{font-family:"Unbounded",system-ui,sans-serif;font-weight:600;letter-spa
   background:var(--sheet);position:sticky;top:0;z-index:900}
 .bar h1{font-size:15px}
 .bar .sub{font-family:"IBM Plex Mono",monospace;font-size:10px;color:var(--ink-3);letter-spacing:.14em;text-transform:uppercase}
-.back{width:30px;height:30px;border:1px solid var(--line-2);border-radius:8px;display:grid;place-items:center;flex:none}
+.back{width:34px;height:34px;border:1px solid var(--line-2);border-radius:var(--r-pill);display:grid;place-items:center;flex:none}
 .body{flex:1;overflow:auto;padding:16px 16px 96px}
 .nav{position:sticky;bottom:0;display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--line);
   background:var(--sheet);z-index:900}
-.nav button{padding:11px 4px 13px;display:flex;flex-direction:column;align-items:center;gap:5px;
+.nav button{padding:12px 4px 14px;display:flex;flex-direction:column;align-items:center;gap:5px;
   font-family:"IBM Plex Mono",monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
 .nav button[aria-current="true"]{color:var(--verd-dk)}
 .nav button[aria-current="true"] svg{stroke:var(--verd-dk)}
@@ -41,11 +53,11 @@ h1,h2,h3{font-family:"Unbounded",system-ui,sans-serif;font-weight:600;letter-spa
 .lede{font-size:13.5px;line-height:1.55;color:var(--ink-2)}
 .rule{height:1px;background:var(--line);margin:18px 0}
 
-.lmap{height:330px;border:1px solid var(--line-2);border-radius:14px;overflow:hidden;background:var(--stone);position:relative;z-index:1}
+.lmap{height:330px;border:1px solid var(--line-2);border-radius:var(--r-lg);overflow:hidden;background:var(--stone);position:relative;z-index:1}
 .lmap.tall{height:390px}
 .leaflet-container{font-family:"IBM Plex Sans",sans-serif;background:var(--stone)}
 .leaflet-control-attribution{font-size:9px!important;background:rgba(242,241,233,.86)!important}
-.leaflet-popup-content-wrapper{border-radius:11px;background:var(--sheet);box-shadow:var(--shadow)}
+.leaflet-popup-content-wrapper{border-radius:var(--r-md);background:var(--sheet);box-shadow:var(--shadow)}
 .leaflet-popup-content{margin:11px 13px;font-size:13px}
 .leaflet-bar a{color:var(--ink)!important}
 .mk{display:grid;place-items:center}
@@ -62,27 +74,28 @@ h1,h2,h3{font-family:"Unbounded",system-ui,sans-serif;font-weight:600;letter-spa
 
 .chips{display:flex;gap:6px;overflow-x:auto;padding:2px 0 6px;scrollbar-width:none}
 .chips::-webkit-scrollbar{display:none}
-.chip{white-space:nowrap;padding:7px 12px;border:1px solid var(--line-2);border-radius:999px;font-size:12px;background:transparent}
+.chip{white-space:nowrap;padding:8px 14px;border:1px solid var(--line-2);border-radius:999px;font-size:12px;background:transparent}
 .chip[aria-pressed="true"]{background:var(--ink);color:var(--sheet);border-color:var(--ink)}
-.chip.sm{padding:5px 10px;font-size:11px}
+.chip.sm{padding:6px 12px;font-size:11px}
 
-.card{border:1px solid var(--line-2);border-radius:14px;background:#FAF9F3;padding:14px;margin-bottom:10px}
+.card{border:1px solid var(--line-2);border-radius:var(--r-lg);background:var(--card);padding:15px;
+  margin-bottom:10px;box-shadow:var(--shadow-sm)}
 .card h3{font-size:14.5px;line-height:1.3}
 .row{display:flex;align-items:center;gap:8px}
 .between{display:flex;justify-content:space-between;align-items:center;gap:10px}
 .meta{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3)}
 .tag{font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;
-  padding:3px 7px;border-radius:5px;border:1px solid var(--line-2);color:var(--ink-2);white-space:nowrap}
+  padding:3.5px 9px;border-radius:var(--r-pill);border:1px solid var(--line-2);color:var(--ink-2);white-space:nowrap}
 .tag.ok{color:var(--verd-dk);border-color:rgba(46,125,108,.45);background:rgba(46,125,108,.08)}
 .tag.warn{color:var(--copper);border-color:rgba(168,84,43,.4);background:rgba(168,84,43,.08)}
 .tag.size{color:var(--ink);border-color:var(--line-2);background:rgba(21,36,46,.05)}
 
-.btn{display:block;width:100%;padding:15px;border-radius:12px;background:var(--ink);color:var(--sheet);
+.btn{display:block;width:100%;padding:16px;border-radius:var(--r-pill);background:var(--ink);color:var(--sheet);
   font-family:"Unbounded",sans-serif;font-size:13px;font-weight:600;text-align:center}
 .btn.go{background:var(--verd-dk)}
 .btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line-2)}
 .btn:disabled{opacity:.4}
-.btn-sm{padding:9px 14px;border:1px solid var(--line-2);border-radius:9px;font-size:12px}
+.btn-sm{padding:10px 16px;border:1px solid var(--line-2);border-radius:var(--r-pill);font-size:12px}
 
 .stars{display:flex;gap:5px}
 .star{width:30px;height:30px;display:grid;place-items:center}
@@ -92,31 +105,31 @@ h1,h2,h3{font-family:"Unbounded",system-ui,sans-serif;font-weight:600;letter-spa
 .stars.sm .star{width:15px;height:15px}
 .stars.sm .star svg{width:13px;height:13px}
 
-.stamp{border:1.5px solid var(--verd-dk);color:var(--verd-dk);border-radius:8px;padding:6px 9px;
+.stamp{border:1.5px solid var(--verd-dk);color:var(--verd-dk);border-radius:var(--r-pill);padding:6px 12px;
   font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
   transform:rotate(-2.5deg);display:inline-block;opacity:.85}
 
-.plate{border:1px solid var(--line-2);border-radius:12px;overflow:hidden;background:var(--stone)}
+.plate{border:1px solid var(--line-2);border-radius:var(--r-lg);overflow:hidden;background:var(--stone)}
 .plate svg{display:block;width:100%;height:auto}
 .switch{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--line-2)}
 .switch button{padding:9px;font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.1em;
   text-transform:uppercase;color:var(--ink-3);background:#EDEBE1}
 .switch button[aria-pressed="true"]{background:var(--ink);color:var(--sheet)}
 
-.locked{border:1px dashed var(--line-2);border-radius:12px;padding:13px;display:flex;gap:11px;align-items:center;background:rgba(21,36,46,.03)}
-.alert{border:1px solid rgba(168,84,43,.4);background:rgba(168,84,43,.07);border-radius:11px;padding:11px 13px;
+.locked{border:1px dashed var(--line-2);border-radius:var(--r-md);padding:14px;display:flex;gap:11px;align-items:center;background:rgba(21,36,46,.03)}
+.alert{border:1px solid rgba(168,84,43,.4);background:rgba(168,84,43,.07);border-radius:var(--r-md);padding:12px 14px;
   font-size:12px;line-height:1.5;color:#7C3E1F;margin-bottom:12px}
-.field{width:100%;border:1px solid var(--line-2);border-radius:10px;padding:11px;font:inherit;font-size:13px;
-  background:#FAF9F3;resize:vertical;color:var(--ink)}
+.field{width:100%;border:1px solid var(--line-2);border-radius:var(--r-sm);padding:12px;font:inherit;font-size:13px;
+  background:var(--card);resize:vertical;color:var(--ink)}
 .field:focus{outline:2px solid var(--verd);outline-offset:1px}
-.badge{border:1px solid var(--line-2);border-radius:12px;padding:12px;text-align:center;background:#FAF9F3}
+.badge{border:1px solid var(--line-2);border-radius:var(--r-md);padding:13px;text-align:center;background:var(--card)}
 .badge.got{border-color:var(--gold);background:rgba(176,132,23,.09)}
 .badge .g{font-size:22px;line-height:1;margin-bottom:6px;filter:grayscale(1);opacity:.35}
 .badge.got .g{filter:none;opacity:1}
 .badge .n{font-size:10.5px;line-height:1.3;font-weight:600}
 .badge .d{font-size:9.5px;color:var(--ink-3);margin-top:3px;line-height:1.3}
 .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
-.stat{border:1px solid var(--line-2);border-radius:11px;padding:11px;text-align:center;background:#FAF9F3}
+.stat{border:1px solid var(--line-2);border-radius:var(--r-md);padding:12px;text-align:center;background:var(--card)}
 .stat b{font-family:"Unbounded",sans-serif;font-size:18px;display:block;line-height:1.1}
 .stat span{font-family:"IBM Plex Mono",monospace;font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
 .stops{list-style:none;padding:0;margin:0}
@@ -145,17 +158,17 @@ h1,h2,h3{font-family:"Unbounded",system-ui,sans-serif;font-weight:600;letter-spa
 
 /* Замок замість зорепаду, поки відвідини не підтверджені.
    Це і є правило 1 зі спеки, доведене до інтерфейсу. */
-.gate{border:1px dashed var(--line-2);border-radius:12px;padding:14px;background:rgba(21,36,46,.03)}
+.gate{border:1px dashed var(--line-2);border-radius:var(--r-lg);padding:15px;background:rgba(21,36,46,.03)}
 .gate .row{align-items:flex-start}
-.gate .lock{width:30px;height:30px;border:1px solid var(--line-2);border-radius:9px;
+.gate .lock{width:34px;height:34px;border:1px solid var(--line-2);border-radius:var(--r-pill);
   display:grid;place-items:center;flex:none;background:var(--sheet)}
 .gate .lock svg{stroke:var(--ink-3);fill:none;stroke-width:1.6}
 .gate b{font-size:12.5px;display:block;margin-bottom:3px}
 .stars.off .star svg path{stroke:var(--line-2)}
 
 /* Смуга геолокації: відстань до цілі, точність, стан дозволу. */
-.geo{display:flex;align-items:center;gap:10px;border:1px solid var(--line-2);border-radius:12px;
-  padding:11px 13px;background:#FAF9F3;margin-bottom:10px}
+.geo{display:flex;align-items:center;gap:10px;border:1px solid var(--line-2);border-radius:var(--r-md);
+  padding:12px 14px;background:var(--card);margin-bottom:10px}
 .geo .pulse{width:9px;height:9px;border-radius:50%;background:var(--ink-3);flex:none}
 .geo.live .pulse{background:var(--verd);animation:pulse 2s infinite}
 .geo.here .pulse{background:var(--copper);animation:pulse 1s infinite}
@@ -179,31 +192,111 @@ h1,h2,h3{font-family:"Unbounded",system-ui,sans-serif;font-weight:600;letter-spa
   display:flex;align-items:flex-end;justify-content:center;animation:fade .18s ease-out}
 .scrim.center{align-items:center}
 @keyframes fade{from{opacity:0}to{opacity:1}}
-.sheet{width:100%;max-width:430px;background:var(--sheet);border-radius:18px 18px 0 0;
+.sheet{width:100%;max-width:430px;background:var(--sheet);border-radius:var(--r-xl) var(--r-xl) 0 0;
   padding:18px 16px calc(18px + env(safe-area-inset-bottom));animation:up .22s cubic-bezier(.2,.8,.2,1)}
-.scrim.center .sheet{border-radius:16px;margin:0 16px;max-width:390px;animation:none}
+.scrim.center .sheet{border-radius:var(--r-lg);margin:0 16px;max-width:390px;animation:none}
 @keyframes up{from{transform:translateY(16px)}to{transform:translateY(0)}}
 .sheet h3{font-size:16px;margin-bottom:6px}
-.sheet .opt{width:100%;text-align:left;border:1px solid var(--line-2);border-radius:11px;
-  padding:12px 13px;margin-top:8px;font-size:13px;background:#FAF9F3}
+.sheet .opt{width:100%;text-align:left;border:1px solid var(--line-2);border-radius:var(--r-md);
+  padding:13px 15px;margin-top:8px;font-size:13px;background:var(--card)}
 .sheet .opt b{display:block;font-size:13px}
 .sheet .opt span{font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--ink-3)}
 
 /* Тост: коротке підтвердження дії без діалогу. */
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:86px;z-index:1100;
   max-width:390px;width:calc(100% - 32px);background:var(--ink);color:var(--sheet);
-  border-radius:12px;padding:12px 14px;font-size:12.5px;line-height:1.45;box-shadow:var(--shadow)}
+  border-radius:var(--r-md);padding:13px 16px;font-size:12.5px;line-height:1.45;box-shadow:var(--shadow)}
 .toast b{font-family:"Unbounded",sans-serif;font-size:12.5px}
 
 /* Смуга прогресу кешування офлайну. */
-.prog{height:4px;border-radius:2px;background:var(--stone);overflow:hidden;margin-top:9px}
+.prog{height:5px;border-radius:var(--r-pill);background:var(--stone);overflow:hidden;margin-top:9px}
 .prog i{display:block;height:100%;background:var(--verd-dk);width:0;transition:width .25s}
 
 /* Банер оновлення застосунку (service worker підтягнув нову версію). */
-.upd{border:1px solid rgba(46,125,108,.4);background:rgba(46,125,108,.08);border-radius:11px;
+.upd{border:1px solid rgba(46,125,108,.4);background:rgba(46,125,108,.08);border-radius:var(--r-md);
   padding:10px 12px;margin-bottom:12px;display:flex;align-items:center;gap:10px;font-size:12.5px}
 .upd button{flex:none;border:1px solid var(--verd-dk);color:var(--verd-dk);
-  border-radius:8px;padding:6px 10px;font-size:11.5px}
+  border-radius:var(--r-pill);padding:7px 12px;font-size:11.5px}
 
 /* Позначка джерела підтвердження на штампі. */
 .stamp.manual{border-style:dashed;opacity:.7}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ДОРОЖНІЙ РЕЖИМ
+   Окрема тема для екрана подорожі: за кермом і на сонці читається
+   інша типографіка, ніж у списку пам'яток. Тому не «темний варіант
+   тих самих карток», а свій набір: велика відстань, великий напрямок,
+   решта прибрана з дороги.
+   ═══════════════════════════════════════════════════════════════════ */
+
+body.road{background:#0B1114}
+body.road .bar,
+body.road .nav{display:none}
+body.road .body{padding:0;overflow:hidden;display:flex}
+body.road .frame{background:#0B1114;border-color:transparent}
+@media (max-width:520px){body.road .frame{border-radius:0}}
+
+.roadv{position:relative;display:flex;flex-direction:column;flex:1;min-height:0;
+  background:#0B1114;color:#EAF2F4}
+
+/* Верхня плашка: скільки лишилось і куди повертати. */
+.roadv .rtop{display:flex;align-items:center;gap:15px;
+  padding:calc(15px + env(safe-area-inset-top)) 18px 15px}
+.roadv .rarrow{width:56px;height:56px;flex:none;display:grid;place-items:center;
+  border-radius:var(--r-pill);background:rgba(234,242,244,.09)}
+.roadv .rarrow svg{width:30px;height:30px;stroke:#EAF2F4;fill:none;stroke-width:2.4;
+  stroke-linecap:round;stroke-linejoin:round;transition:transform .45s var(--ease)}
+.roadv .rhead{flex:1;min-width:0}
+.roadv .rdist{display:block;font-family:"Unbounded",sans-serif;font-size:33px;font-weight:600;
+  line-height:1.05;letter-spacing:-.03em}
+.roadv .rname{display:block;font-size:13.5px;color:#9FB3B9;margin-top:5px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.roadv .rclose{width:38px;height:38px;flex:none;border-radius:var(--r-pill);
+  background:rgba(234,242,244,.09);display:grid;place-items:center;color:#EAF2F4}
+.roadv .rclose svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round}
+
+/* Тонка смуга «а далі» — рівно як підказка другого маневру. */
+.roadv .rnext{display:flex;align-items:center;gap:9px;padding:10px 18px;
+  background:#141D22;font-family:"IBM Plex Mono",monospace;font-size:10.5px;
+  letter-spacing:.1em;text-transform:uppercase;color:#8FA6AD}
+.roadv .rnext b{font-family:"IBM Plex Sans",sans-serif;font-size:12.5px;letter-spacing:0;
+  text-transform:none;color:#EAF2F4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.roadv .lmap{flex:1;height:auto;min-height:0;border:none;border-radius:0;background:#0B1114}
+body.road .leaflet-container{background:#0B1114}
+body.road .leaflet-control-attribution{background:rgba(11,17,20,.72)!important;color:#8FA6AD}
+body.road .leaflet-control-attribution a{color:#9FB3B9}
+body.road .leaflet-bar a{background:#141D22;color:#EAF2F4!important;border-color:rgba(234,242,244,.14)}
+
+/* Нижня картка: повернути слідування, скільки лишилось, огляд усього треку. */
+.roadv .rbot{position:absolute;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));
+  z-index:800;display:flex;align-items:center;gap:10px;padding:11px 12px;
+  background:var(--sheet);color:var(--ink);border-radius:var(--r-xl);box-shadow:var(--shadow)}
+.roadv .reta{flex:1;min-width:0;padding-left:4px}
+.roadv .reta b{font-family:"Unbounded",sans-serif;font-size:15px;display:block;line-height:1.15}
+.roadv .reta span{font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--ink-3)}
+.roadv .rbtn{flex:none;border:1px solid var(--line-2);border-radius:var(--r-pill);
+  padding:10px 15px;font-size:12px;background:transparent;white-space:nowrap}
+.roadv .rbtn.solid{background:var(--ink);color:var(--sheet);border-color:var(--ink)}
+.roadv .rbtn.round{width:44px;height:44px;padding:0;display:grid;place-items:center}
+.roadv .rbtn svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round}
+
+/* Смуга «ви відхилились / перебудовую» — з'являється замість «далі». */
+.roadv .rwarn{background:#3A2A16;color:#F0D9A8}
+
+/* Власна позначка: трикутник дивиться туди, куди ти рухаєшся.
+   Коли курсу немає (стоїш), стає нейтральною крапкою — щоб не
+   показувати напрямок, якого насправді не знаємо. */
+.me{width:30px;height:30px;display:grid;place-items:center;transition:transform .35s var(--ease)}
+.me svg{width:27px;height:27px;fill:#16B8C8;stroke:#fff;stroke-width:1.5;stroke-linejoin:round}
+.me.flat svg{display:none}
+.me.flat::after{content:"";width:15px;height:15px;border-radius:50%;background:#16B8C8;
+  box-shadow:0 0 0 3px #fff, 0 1px 4px rgba(0,0,0,.4)}
+
+/* Вибір старту подорожі — від бази чи від себе. */
+.startpick{display:grid;gap:8px;margin-top:10px}
+.startpick button{text-align:left;border:1px solid var(--line-2);border-radius:var(--r-lg);
+  padding:13px 15px;background:var(--card)}
+.startpick button[aria-pressed="true"]{border-color:var(--verd-dk);background:rgba(46,125,108,.07)}
+.startpick b{display:block;font-size:13px}
+.startpick span{font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--ink-3)}

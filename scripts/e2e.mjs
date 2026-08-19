@@ -33,6 +33,19 @@ const ok = m => { pass++; console.log('  ✓ ' + m); };
 const bad = (m, extra) => { fail++; console.error('  ✗ ' + m + (extra ? '\n      ' + extra : '')); };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+/* Якщо на порту вже хтось відповідає — це браузер від попереднього
+   запуску, який упав і не прибрався. Мовчки причепитись до нього
+   означало б тестувати чужий localStorage і вірити результату:
+   саме так тест одного разу «побачив» відвідини, яких не робив. */
+try {
+  const r = await fetch(`http://127.0.0.1:${PORT}/json/version`);
+  if (r.ok) {
+    console.error(`  ✗ порт ${PORT} уже зайнятий браузером від попереднього запуску.`);
+    console.error(`      Закрийте його: pkill -f "remote-debugging-port=${PORT}"`);
+    process.exit(1);
+  }
+} catch { /* нікого немає — саме те, що треба */ }
+
 const chrome = spawn(CHROME, [
   '--headless=new', '--no-sandbox', '--disable-gpu', '--hide-scrollbars',
   '--disable-dev-shm-usage', '--no-first-run', '--disable-extensions',
@@ -41,6 +54,20 @@ const chrome = spawn(CHROME, [
   '--window-size=430,900',
   'about:blank'
 ], { stdio: 'ignore' });
+
+/* Прибирання на будь-якому виході, а не лише на щасливому: інакше
+   перша ж провалена перевірка лишає браузер жити, і наступний
+   запуск бачить не той стан, який сам створив. */
+let killed = false;
+const shutdown = () => {
+  if (killed) return;
+  killed = true;
+  try { chrome.kill(); } catch { /* уже мертвий */ }
+};
+process.on('exit', shutdown);
+['SIGINT', 'SIGTERM'].forEach(s => process.on(s, () => { shutdown(); process.exit(130); }));
+process.on('uncaughtException', e => { console.error('\n  ✗ ' + (e && e.message)); shutdown(); process.exit(1); });
+process.on('unhandledRejection', e => { console.error('\n  ✗ ' + (e && e.message)); shutdown(); process.exit(1); });
 
 async function findTarget() {
   for (let i = 0; i < 80; i++) {
@@ -238,17 +265,30 @@ const eyebrow = await text('.card .eyebrow');
   : bad('неоднозначний підпис: ' + eyebrow);
 await shot('04-journey-far');
 
-/* Підходимо до Олеського замку: має спрацювати автоматично. */
-await standAt(49.9686, 24.8963);
+/* Порядок точок тепер залежить від того, звідки ви стартували, тому
+   тест не має права припускати, що першою буде саме та точка, яка
+   лежить першою в даних. Питаємо застосунок, куди він веде. */
+const aim = await evaluate(`
+  const r = ROUTES.find(x => x.id === V.route);
+  const id = flat(r)[V.idx];
+  return { id, lat: P(id).lat, lon: P(id).lon,
+           order: V.plan.days[0].join(','), byGps: V.plan.byGps };
+`);
+aim.byGps
+  ? ok('план перебудовано під фактичне положення: ' + aim.order)
+  : bad('план лишився без урахування GPS: ' + JSON.stringify(aim));
+
+/* Підходимо до першої точки: має спрацювати автоматично. */
+await standAt(aim.lat, aim.lon);
 await sleep(1200);
 const near = await evaluate(`return {
   screen: V.screen,
-  visit: S.visits['olesko'] || null,
+  visit: S.visits[${JSON.stringify(aim.id)}] || null,
   gate: !!document.querySelector('.gate'),
   picker: !!document.querySelector('[data-star]')
 }`);
 near.screen === 'point' && near.visit
-  ? ok('у радіусі 300 м картка відкрилась сама')
+  ? ok('у радіусі 300 м картка відкрилась сама: ' + aim.id)
   : bad('автоматичне прибуття не спрацювало: ' + JSON.stringify(near));
 near.visit && near.visit.by === 'gps'
   ? ok('відвідини позначені як підтверджені по GPS')
@@ -262,7 +302,7 @@ await shot('05-point-unlocked');
 await click('[data-star="5"]');
 await evaluate(`document.getElementById('rev').value = 'Найкращий вигляд з валів на заході сонця.'`);
 await click('[data-act="review"]');
-const rated = await evaluate(`return S.ratings['olesko'] || null`);
+const rated = await evaluate(`return S.ratings[${JSON.stringify(aim.id)}] || null`);
 rated && rated.stars === 5 && rated.by === 'gps' && rated.text.length > 10
   ? ok('оцінка збережена з visit-джерелом: ' + rated.stars + '★ / ' + rated.by)
   : bad('оцінка не збереглась як слід: ' + JSON.stringify(rated));
@@ -272,19 +312,30 @@ rated && rated.stars === 5 && rated.by === 'gps' && rated.text.length > 10
 
 /* ── 6. Решта маршруту, ручне підтвердження ──────────────────────── */
 await click('[data-act="continue"]');
-await standAt(49.9414, 24.9890); /* Підгірці */
+const aim2 = await evaluate(`
+  const r = ROUTES.find(x => x.id === V.route);
+  const id = flat(r)[V.idx];
+  return { id, lat: P(id).lat, lon: P(id).lon };
+`);
+await standAt(aim2.lat, aim2.lon);
 await sleep(1200);
-(await evaluate(`return !!S.visits['pidhirtsi']`)) ? ok('друга точка зарахована') : bad('друга точка не зарахована');
+(await evaluate(`return !!S.visits[${JSON.stringify(aim2.id)}]`))
+  ? ok('друга точка зарахована: ' + aim2.id)
+  : bad('друга точка не зарахована: ' + aim2.id);
 await click('[data-act="continue"]');
 
 /* Третю точку підтверджуємо вручну, стоячи далеко — так робить
    користувач у зоні без сигналу. Штамп мусить це відрізняти. */
+const aim3 = await evaluate(`
+  const r = ROUTES.find(x => x.id === V.route);
+  return { id: flat(r)[V.idx] };
+`);
 await standAt(49.5, 24.0);
 await sleep(700);
 await click('[data-act="arrive-manual"]');
-const manual = await evaluate(`return S.visits['zolochiv'] || null`);
+const manual = await evaluate(`return S.visits[${JSON.stringify(aim3.id)}] || null`);
 manual && manual.by === 'manual'
-  ? ok('ручне підтвердження позначене як manual')
+  ? ok('ручне підтвердження позначене як manual: ' + aim3.id)
   : bad('ручне підтвердження не відрізняється від GPS: ' + JSON.stringify(manual));
 await shot('06-manual');
 
@@ -367,7 +418,110 @@ tiers.stale.rank > tiers.fresh.rank && tiers.gone.rank >= tiers.stale.rank
       [tiers.fresh.rank, tiers.stale.rank, tiers.gone.rank].join(' → '));
 await shot('09-status-tiers');
 
-/* ── 10. Шторки замість системних діалогів ───────────────────────── */
+/* ── 10. Старт від свого місця й дорожній режим ──────────────────── */
+/* Стоїмо під Бродами — на іншому кінці області від бази. Саме тут
+   видно, чи справді порядок дня будується під людину. Не в самій
+   точці: інакше спрацює автоприбуття і перевіряти буде нічого. */
+await standAt(50.1400, 25.1000);
+await sleep(700);
+await click('[data-nav="routes"]');
+await click('[data-route="horseshoe-plus"]');
+await click('[data-act="start"]');
+await sleep(900);
+
+const plan = await evaluate(`
+  const r = ROUTES.find(x => x.id === V.route);
+  const st = flat(r);
+  return {
+    order: V.plan.days[0].join(','),
+    data: r.days[0].join(','),
+    byGps: V.plan.byGps,
+    first: st[V.idx],
+    fromMe: legOrigin(r, st) === Geo.pos
+  };
+`);
+plan.byGps && plan.order !== plan.data
+  ? ok('порядок дня перебудовано під старт: ' + plan.data + ' → ' + plan.order)
+  : bad('порядок не перебудувався: ' + JSON.stringify(plan));
+plan.first === 'brody'
+  ? ok('першою стала найближча точка: brody')
+  : bad('перша точка не найближча: ' + plan.first);
+plan.fromMe
+  ? ok('трек починається від координат користувача')
+  : bad('трек починається не від користувача');
+
+/* Сюжетний маршрут не переставляється — інакше від задуму
+   «городище → замок → бастіон» лишився б набір точок поруч. */
+const ordered = await evaluate(`
+  const r = ROUTES.find(x => x.id === 'defense');
+  const p = buildPlan(r, Geo.pos, true);
+  return { got: p.days[0].join(','), want: r.days[0].join(','), ord: !!r.ord };
+`);
+ordered.ord && ordered.got === ordered.want
+  ? ok('сюжетний маршрут не переставлено: ' + ordered.got)
+  : bad('сюжетний порядок зруйновано: ' + JSON.stringify(ordered));
+
+await click('[data-act="road-on"]');
+await sleep(500);
+const road = await evaluate(`return {
+  body: document.body.classList.contains('road'),
+  navHidden: getComputedStyle(document.querySelector('.nav')).display === 'none',
+  barHidden: getComputedStyle(document.querySelector('.bar')).display === 'none',
+  dist: document.getElementById('rdist')?.innerText || null,
+  arrow: document.getElementById('rarrow')?.style.transform || null,
+  eta: document.getElementById('reta')?.innerText || null,
+  follow: V.follow
+}`);
+road.body && road.navHidden && road.barHidden
+  ? ok('дорожній режим займає весь екран')
+  : bad('дорожній режим не повноекранний: ' + JSON.stringify(road));
+/\d/.test(road.dist || '') && /rotate\(-?\d+deg\)/.test(road.arrow || '')
+  ? ok('плашка веде: ' + road.dist + ' · ' + road.arrow)
+  : bad('плашка напрямку порожня: ' + JSON.stringify(road));
+/\d/.test(road.eta || '') ? ok('показано час до кінця дня: ' + road.eta) : bad('немає часу до кінця дня');
+await shot('10-road');
+
+/* Відстань має жити: під'їжджаємо ближче — число меншає. */
+const before = road.dist;
+await standAt(50.1100, 25.1200);
+await sleep(900);
+const nowDist = await evaluate(`return document.getElementById('rdist')?.innerText || null`);
+nowDist && nowDist !== before
+  ? ok('відстань оновлюється в русі: ' + before + ' → ' + nowDist)
+  : bad('відстань не змінилась при русі: ' + before + ' → ' + nowDist);
+
+/* Слідування вимикається кнопкою і оглядом, і це видно в стані. */
+await click('[data-act="follow"]');
+const off = await evaluate(`return V.follow`);
+await click('[data-act="overview"]');
+const afterOver = await evaluate(`return V.follow`);
+off === false && afterOver === false
+  ? ok('слідування вимикається кнопкою і оглядом')
+  : bad('стан слідування не сходиться: ' + off + ' / ' + afterOver);
+
+/* Покрокові підказки віддаємо назовні — перевіряємо, що є куди. */
+await click('[data-act="extnav"]');
+const ext = await evaluate(`return {
+  open: !!document.querySelector('.scrim .sheet'),
+  opts: [...document.querySelectorAll('.sheet .opt b')].map(e => e.innerText)
+}`);
+ext.open && ext.opts.length === 3
+  ? ok('передача в навігатор: ' + ext.opts.join(' / '))
+  : bad('немає передачі в навігатор: ' + JSON.stringify(ext));
+await click('[data-sheet="2"]');
+!(await $('.scrim')) ? ok('шторка навігатора закрилась') : bad('шторка навігатора лишилась');
+
+await click('[data-act="road-off"]');
+const back = await evaluate(`return {
+  body: document.body.classList.contains('road'),
+  navShown: getComputedStyle(document.querySelector('.nav')).display !== 'none'
+}`);
+!back.body && back.navShown
+  ? ok('вихід із дорожнього режиму повертає звичайний екран')
+  : bad('після виходу екран не відновився: ' + JSON.stringify(back));
+await click('[data-act="abort"]');
+
+/* ── 11. Шторки замість системних діалогів ───────────────────────── */
 await click('[data-nav="map"]');
 await click('[data-open="tustan"]');
 await click('[data-act="report"]');
@@ -378,7 +532,7 @@ await click('[data-sheet="1"]');
 (await $('.toast')) ? ok('після вибору показано підтвердження') : bad('немає підтвердження');
 !(await $('.scrim')) ? ok('шторка закрилась') : bad('шторка лишилась відкритою');
 
-/* ── 11. Карта без мережі ────────────────────────────────────────── */
+/* ── 12. Карта без мережі ────────────────────────────────────────── */
 /* У цьому середовищі плитки й CDN заблоковані, тому перевіряємо
    саме той шлях, який побачить користувач у зоні без зв'язку. */
 await click('[data-nav="map"]');
@@ -392,7 +546,7 @@ map.fallback || map.leaflet
   : bad('карта не показала ні себе, ні схему');
 await shot('10-map-offline');
 
-/* ── 12. Помилки в консолі ───────────────────────────────────────── */
+/* ── 13. Помилки в консолі ───────────────────────────────────────── */
 await sleep(300);
 errors.length === 0
   ? ok('консоль чиста')
