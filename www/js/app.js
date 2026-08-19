@@ -95,7 +95,7 @@ const Store = (function () {
   }
 })();
 
-let S = { v: 3, visits: {}, ratings: {}, done: [], badges: [], offline: [] };
+let S = { v: 3, visits: {}, ratings: {}, done: [], badges: [], offline: [], region: null };
 let V = {
   screen: 'map', theme: 'all', sort: 'near', size: 'all',
   route: null, idx: 0, t0: 0, sel: null, from: 'map',
@@ -107,6 +107,9 @@ let V = {
   road: false, roadBack: false, follow: true, followAnim: false, plan: null,
   /* Пошук: q — сам запит, searching — чи розгорнуте поле в шапці. */
   q: '', searching: false,
+  /* Область, яку зараз показуємо. null — ще не визначились:
+     чекаємо GPS, щоб обрати найближчу. */
+  region: null,
   /* Головний екран: яка вкладка у шторці, у якому вона положенні
      і чи вже ставили карту на позицію користувача. */
   mapTab: 'places', snap: 0, centered: false, listAt: null
@@ -121,6 +124,47 @@ function save() { Store.write(S); }
 
 /* ═════════ УТИЛІТИ ═════════ */
 const P = id => POINTS.find(p => p.id === id);
+
+/* ═════════ ОБЛАСТЬ ═════════
+   Точка і маршрут належать області. Без цього список «від вас»
+   пропонував би найближчу пам'ятку за 500 км, а маршрут із базою
+   у Львові вів би через пів країни. */
+const REG = () => REGIONS[V.region] ? V.region : Object.keys(REGIONS)[0];
+const reg = () => REGIONS[REG()];
+const regPoints = () => POINTS.filter(p => p.reg === REG());
+const regRoutes = () => ROUTES.filter(r => r.reg === REG());
+
+/* Найближча область за прямою від центру. Груба міра, але для вибору
+   між областями точнішої не треба. */
+function nearestRegion(pos) {
+  let best = null, bd = Infinity;
+  Object.keys(REGIONS).forEach(k => {
+    const d = dist(pos, REGIONS[k]);
+    if (d < bd) { bd = d; best = k; }
+  });
+  return best;
+}
+
+/* Область обираємо самі, поки користувач не обрав руками: його вибір
+   лежить у S і переживає перезапуск, тож не перебиваємо його. */
+function autoRegion() {
+  if (S.region || !Geo.pos) return false;
+  const k = nearestRegion(Geo.pos);
+  if (!k || k === V.region) return false;
+  V.region = k;
+  return true;
+}
+
+function setRegion(k) {
+  if (!REGIONS[k] || k === V.region) return;
+  V.region = k;
+  S.region = k;          /* вибір руками фіксуємо назавжди */
+  V.q = ''; V.searching = false;
+  V.theme = 'all'; V.mapTab = 'places';
+  V.centered = false; V.listAt = null;
+  save();
+  render();
+}
 
 /* Дні поточної подорожі. Поки подорож не почалась — як у даних.
    Щойно почалась — беремо порядок, перебудований під старт, щоб
@@ -251,6 +295,7 @@ function plural(n, one, few, many) {
   return many;
 }
 const pts = n => n + ' ' + plural(n, 'точка', 'точки', 'точок');
+const rts = n => n + ' ' + plural(n, 'маршрут', 'маршрути', 'маршрутів');
 
 function stamp(ts) {
   const d = new Date(ts), p = n => String(n).padStart(2, '0');
@@ -961,7 +1006,7 @@ const Alarms = {
   },
   banner() {
     const a = this.state;
-    return '<div class="alert"><b>Повітряна тривога у Львівській обл.: ' +
+    return '<div class="alert"><b>Повітряна тривога у ' + reg().alarm + ': ' +
       (a.active ? 'Є. Прямуйте в укриття.' : 'немає.') + '</b><br>' +
       'Станом на ' + stamp(a.at) + '. ' +
       (CONFIG.alarmApi ? 'Джерело: офіційне API тривог.'
@@ -982,7 +1027,7 @@ const SNAPS = [0.30, 0.62, 0.92];
 
 /* Звідки міряємо відстані. Є сигнал — від вас; немає — від бази,
    і на екрані так і написано, щоб число не вводило в оману. */
-const distFrom = () => Geo.pos || P('rynok');
+const distFrom = () => Geo.pos || P(reg().base);
 
 /* Відстань до маршруту — до найближчої його точки, а не до першої:
    маршрут може починатись далеко, а проходити поруч. */
@@ -1052,7 +1097,7 @@ function mapModel() {
   const live = Geo.state === 'live' && !!Geo.pos;
   const near = V.sort !== 'pop';
 
-  const places = (V.theme === 'all' ? POINTS : POINTS.filter(p => p.t.indexOf(V.theme) > -1))
+  const places = (V.theme === 'all' ? regPoints() : regPoints().filter(p => p.t.indexOf(V.theme) > -1))
     .filter(hits)
     .slice().sort((a, b) => near
       ? dist(from, a) - dist(from, b)
@@ -1061,7 +1106,7 @@ function mapModel() {
          відстань — підміняти її означало б брехати про дорогу. */
       : (recommended(b) - recommended(a)) || (b.pop - a.pop));
 
-  const routes = ROUTES.filter(r => V.theme === 'all' ||
+  const routes = regRoutes().filter(r => V.theme === 'all' ||
       flat(r).some(id => P(id).t.indexOf(V.theme) > -1))
     /* За рівної відстані попереду коротший маршрут: із однієї точки
        логічніше запропонувати одноденний, ніж чотириденний. */
@@ -1078,10 +1123,23 @@ function mapModel() {
 const mapListHTML = m => {
   if (m.tab === 'routes') return m.routes.map(r => routeCard(r, m.from)).join('');
   if (m.places.length) return m.places.map(p => placeCard(p, m.from)).join('');
-  return '<p class="lede" style="margin:10px 2px">' + (V.q.trim()
-    ? 'За запитом «' + esc(V.q.trim()) + '» нічого не знайшли' +
-      (V.theme !== 'all' ? '. Можливо, заважає увімкнений фільтр теми.' : '.')
-    : 'Немає точок за цим фільтром.') + '</p>';
+  if (!V.q.trim()) return '<p class="lede" style="margin:10px 2px">Немає точок за цим фільтром.</p>';
+
+  /* Пошук обмежений областю — і це створює пастку: людина шукає те,
+     що в застосунку є, але в сусідній області, і бачить порожньо.
+     Тому перевіряємо решту областей і пропонуємо перемкнутись. */
+  const elsewhere = Object.keys(REGIONS).filter(k =>
+    k !== REG() && POINTS.some(p => p.reg === k && hits(p)));
+  return '<p class="lede" style="margin:10px 2px">За запитом «' + esc(V.q.trim()) +
+    '» нічого не знайшли' +
+    (V.theme !== 'all' ? '. Можливо, заважає увімкнений фільтр теми.' : '.') + '</p>' +
+    (elsewhere.length
+      ? '<div class="card" style="margin-top:4px"><p class="lede" style="margin:0 0 10px">' +
+        'Але знайшли в іншій області: ' +
+        elsewhere.map(k => esc(REGIONS[k].n)).join(', ') + '.</p>' +
+        elsewhere.map(k => '<button class="btn-sm" data-goreg="' + k + '">Перейти до ' +
+          esc(REGIONS[k].n) + '</button>').join(' ') + '</div>'
+      : '');
 };
 
 /* Відстані в списку живі, але перемальовувати весь екран на кожен фікс
@@ -1108,11 +1166,19 @@ function mapHead(m) {
   const legend = V.theme !== 'all' && THEME_COLOR[V.theme]
     ? '<div class="legend"><span style="--c:' + THEME_COLOR[V.theme][dk] + '"><i></i>' +
       esc(THEMES[V.theme]) + '</span></div>'
-    : '<div class="legend">' + Object.keys(KIND_COLOR).map(k =>
-        '<span style="--c:' + KIND_COLOR[k][dk] + '"><i></i>' +
-        esc(KIND_COLOR[k].n) + '</span>').join('') + '</div>';
+    /* Показуємо тільки ті типи, що є в цій області: «Скельні»
+       на Київщині — це підпис до кольору, якого на карті немає. */
+    : '<div class="legend">' + Object.keys(KIND_COLOR)
+        .filter(k => regPoints().some(p => p.kind === k))
+        .map(k => '<span style="--c:' + KIND_COLOR[k][dk] + '"><i></i>' +
+          esc(KIND_COLOR[k].n) + '</span>').join('') + '</div>';
 
-  return legend +
+  return '<div class="between" style="margin-bottom:9px">' +
+    '<button class="regsel" data-act="region">' + esc(reg().n) +
+    '<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>' +
+    '<span class="meta">' + pts(regPoints().length) + ' · ' +
+    rts(regRoutes().length) + '</span></div>' +
+    legend +
     '<div class="mtabs" role="group" aria-label="Що показувати">' +
     '<button aria-pressed="' + (m.tab === 'places') + '" data-tab="places">Місця · ' +
     m.places.length + '</button>' +
@@ -1154,7 +1220,7 @@ function scrMap() {
 }
 
 function scrRoutes() {
-  let list = ROUTES.filter(r => V.size === 'all' || r.size === V.size);
+  let list = regRoutes().filter(r => V.size === 'all' || r.size === V.size);
   if (V.theme !== 'all') list = list.filter(r => flat(r).some(id => P(id).t.indexOf(V.theme) > -1));
   return '<div><div class="chips" role="group" aria-label="Довжина маршруту">' +
     '<button class="chip" aria-pressed="' + (V.size === 'all') + '" data-size="all">Усі</button>' +
@@ -1450,6 +1516,9 @@ function scrProfile() {
   const vis = Object.keys(S.visits).map(k => [k, S.visits[k]]).sort((a, b) => b[1].at - a[1].at);
   const rated = Object.keys(S.ratings).length;
   const byGps = vis.filter(v => v[1].by === 'gps').length;
+  /* Чужі нагороди в профілі тільки дражнять: «Золота підкова» нічого
+     не каже тому, хто ходить Київщиною. Загальні лишаються завжди. */
+  const shown = BADGES.filter(b => !b.reg || b.reg === REG());
   const stale = POINTS.filter(p => !fresh(p) && !expired(p)).length;
   const gone = POINTS.filter(p => expired(p)).length;
   const oldest = POINTS.map(p => p.upd).sort()[0];
@@ -1459,8 +1528,9 @@ function scrProfile() {
     '<div class="stat"><b>' + S.done.length + '</b><span>маршрутів</span></div>' +
     '<div class="stat"><b>' + rated + '</b><span>оцінок</span></div></div>' +
     '<span class="eyebrow">Нагороди · ' + S.badges.length + ' / 50</span>' +
-    '<p class="meta" style="margin:5px 0 10px">У цій версії реалізовано ' + BADGES.length + '</p>' +
-    '<div class="grid3" style="margin-bottom:18px">' + BADGES.map(b =>
+    '<p class="meta" style="margin:5px 0 10px">Показано ' + shown.length + ' — загальні й ' +
+    esc(reg().n) + '. Усього в цій версії ' + BADGES.length + '</p>' +
+    '<div class="grid3" style="margin-bottom:18px">' + shown.map(b =>
       '<div class="badge ' + (S.badges.indexOf(b.id) > -1 ? 'got' : '') + '">' +
       '<div class="g">' + b.g + '</div><div class="n">' + b.n + '</div>' +
       '<div class="d">' + b.d + '</div></div>').join('') + '</div>' +
@@ -1609,6 +1679,23 @@ function roadMode(on) {
   V.road = on;
   V.follow = true;
   render();
+}
+
+/* Вибір області руками. Автовибір за GPS зручний, але людина може
+   планувати поїздку туди, де її зараз немає, — і це нормальний сценарій. */
+function pickRegion() {
+  const keys = Object.keys(REGIONS);
+  sheet({
+    title: 'Яку область показувати',
+    text: 'Область обирається сама за вашим положенням. Вибір руками її перекриває — і запамʼятовується.',
+    options: keys.map(k => ({
+      label: REGIONS[k].n,
+      hint: POINTS.filter(p => p.reg === k).length + ' точок · ' +
+        ROUTES.filter(r => r.reg === k).length + ' маршрутів' +
+        (k === REG() ? ' · показується' : '')
+    })),
+    onPick(_, i) { closeSheet(); setRegion(keys[i]); }
+  });
 }
 
 /* Покрокові підказки — робота навігатора. Ми віддаємо йому точку
@@ -1779,8 +1866,16 @@ function checkBadges() {
   if (['potelych', 'drohobych'].every(x => v.indexOf(x) > -1)) add('unesco');
   if (S.done.length >= 1) add('route1');
   if (v.indexOf('tustan') > -1) add('rock');
+  if (['sofia', 'lavra'].every(x => v.indexOf(x) > -1)) add('pechery');
+  if (['divych', 'vytachiv'].every(x => v.indexOf(x) > -1)) add('kruchi');
   if (S.done.some(id => { const r = ROUTES.find(x => x.id === id); return r && r.size === 'l'; })) add('long');
-  if (v.length >= POINTS.length) add('all');
+  /* «Уся область» — саме область, а не країна: раніше умова була
+     v.length >= POINTS.length, і з появою другої області нагорода
+     стала недосяжною ні для кого. */
+  Object.keys(REGIONS).forEach(k => {
+    const pts = POINTS.filter(p => p.reg === k);
+    if (pts.length && pts.every(p => v.indexOf(p.id) > -1)) add('all-' + k);
+  });
   save();
   return gained;
 }
@@ -1938,13 +2033,14 @@ function render() {
    безпечніше з текстом даних і легше тестувати. */
 function onTap(e) {
   const t = e.target.closest('[data-open],[data-route],[data-theme],[data-size],[data-tiles],' +
-    '[data-star],[data-media],[data-nav],[data-back],[data-act],[data-sheet],[data-tab]');
+    '[data-star],[data-media],[data-nav],[data-back],[data-act],[data-sheet],[data-tab],[data-goreg]');
   if (!t) return;
   const d = t.dataset;
 
   if (d.sheet != null && V.sheet) { V.sheet.onPick(V.sheet.options[+d.sheet], +d.sheet); return; }
   if (d.act === 'scrim') { if (e.target === t) closeSheet(); return; }
   if (d.act === 'sheet-close') { closeSheet(); return; }
+  if (d.goreg != null) { const q = V.q; setRegion(d.goreg); V.q = q; V.searching = true; render(); focusSearch(); return; }
   if (d.tab != null) { V.mapTab = d.tab; render(); return; }
   if (d.theme != null) { V.theme = d.theme; render(); return; }
   if (d.size != null) { V.size = d.size; render(); return; }
@@ -1959,6 +2055,7 @@ function onTap(e) {
   switch (d.act) {
     case 'sort': V.sort = V.sort === 'pop' ? 'near' : 'pop'; render(); break;
     case 'grab': cycleSnap(); break;
+    case 'region': pickRegion(); break;
     case 'search-on': V.searching = true; render(); focusSearch(); break;
     case 'search-off': V.searching = false; V.q = ''; render(); break;
     case 'locme':
@@ -1999,6 +2096,9 @@ function onTap(e) {
 function boot() {
   const saved = Store.read();
   if (saved) S = Object.assign(S, saved);
+  /* Обрану руками область відновлюємо до першого рендера, інакше
+     екран блимне чужою областю. */
+  if (S.region && REGIONS[S.region]) V.region = S.region;
 
   document.addEventListener('click', onTap);
   document.addEventListener('input', onSearchInput);
@@ -2050,8 +2150,9 @@ function boot() {
     }
 
     if (V.screen === 'map') {
-      /* Перший фікс: ставимо карту на вас і перемальовуємо, бо
-         змінюється і порядок списку, і підписи відстаней. */
+      /* Перший фікс: обираємо область, ставимо карту на вас
+         і перемальовуємо — змінюється і склад списку, і відстані. */
+      if (autoRegion()) { V.centered = false; render(); return; }
       if (stateChanged) { render(); return; }
       if (!V.centered && Geo.pos && LMAP) { V.centered = true; centerOnMe(LMAP, 11); }
       if (Geo.pos && (!V.listAt || distM(V.listAt, Geo.pos) > 300)) {

@@ -36,7 +36,7 @@ const ctx = { console };
 try {
   vm.createContext(ctx);
   new vm.Script(data + '\n;globalThis.__d={POINTS,ROUTES,THEMES,SIZES,BADGES,' +
-    'STATUS_FRESH_DAYS,STATUS_STALE_DAYS,ARRIVE_RADIUS_M,KIND_COLOR,THEME_COLOR};')
+    'STATUS_FRESH_DAYS,STATUS_STALE_DAYS,ARRIVE_RADIUS_M,KIND_COLOR,THEME_COLOR,REGIONS};')
     .runInContext(ctx);
 } catch (e) { bad('data.js не виконався: ' + e.message); }
 
@@ -107,6 +107,42 @@ if (D) {
     if (!refd.includes(id)) bad('точка ' + id + ' зникла з умов нагород у app.js');
   });
   ok('умови нагород сходяться з даними');
+
+  /* ── Області ─────────────────────────────────────────────────────
+     Точка чи маршрут без області провалюються між екранами: їх не
+     показує жоден список, і помітити це на око майже неможливо. */
+  const regs = Object.keys(D.REGIONS);
+  D.POINTS.forEach(p => regs.includes(p.reg)
+    ? null : bad(p.id + ': невідома або відсутня область — ' + p.reg));
+  D.ROUTES.forEach(r => {
+    if (!regs.includes(r.reg)) { bad(r.id + ': невідома або відсутня область — ' + r.reg); return; }
+    /* Маршрут не має права вести до чужої області: база в одній,
+       точки в іншій — це подорож через пів країни. */
+    const alien = r.days.flat().filter(id => {
+      const p = D.POINTS.find(x => x.id === id);
+      return p && p.reg !== r.reg;
+    });
+    if (alien.length) bad(r.id + ' (' + r.reg + '): точки з чужої області — ' + alien.join(', '));
+    const base = D.POINTS.find(p => p.id === r.from);
+    if (base && base.reg !== r.reg) bad(r.id + ': база ' + r.from + ' з області ' + base.reg);
+  });
+  regs.forEach(k => {
+    const base = D.POINTS.find(p => p.id === D.REGIONS[k].base);
+    if (!base) bad('область ' + k + ': бази ' + D.REGIONS[k].base + ' не існує');
+    else if (base.reg !== k) bad('область ' + k + ': база ' + base.id + ' належить ' + base.reg);
+    if (!D.POINTS.some(p => p.reg === k)) bad('область ' + k + ' порожня');
+    if (!D.ROUTES.some(r => r.reg === k)) bad('область ' + k + ' без жодного маршруту');
+    if (!D.REGIONS[k].alarm) bad('область ' + k + ': немає назви для банера тривоги');
+  });
+  ok(regs.length + ' області: точки, маршрути й бази не перетинаються');
+
+  /* Нагороди, прив'язані до області, мусять посилатись на неї ж. */
+  D.BADGES.forEach(b => {
+    if (b.reg && !regs.includes(b.reg)) bad('нагорода ' + b.id + ': невідома область ' + b.reg);
+  });
+  regs.forEach(k => D.BADGES.some(b => b.reg === k)
+    ? null : bad('в області ' + k + ' немає жодної власної нагороди'));
+  ok('нагороди розподілені по областях');
 
   /* Палітра позначок і дані мусять сходитись в обидва боки. Саме ця
      перевірка знайшла, що Тустань — єдина наскельна фортеця набору —

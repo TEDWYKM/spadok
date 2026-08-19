@@ -617,9 +617,15 @@ marks.uniqueColors === marks.kinds && marks.perKind === marks.kinds
 marks.themed === marks.themeHex
   ? ok('під фільтром теми колір береться від теми')
   : bad('фільтр теми не міняє колір: ' + marks.themed + ' замість ' + marks.themeHex);
-(await count('.legend span')) === 5
-  ? ok('легенда показує всі пʼять типів')
-  : bad('легенда неповна: ' + await count('.legend span'));
+/* Легенда показує рівно ті типи, що є в поточній області. */
+const leg = await evaluate(`
+  const shown = document.querySelectorAll('.legend span').length;
+  const kinds = new Set(regPoints().map(p => p.kind));
+  return { shown, kinds: kinds.size };
+`);
+leg.shown === leg.kinds
+  ? ok('легенда показує рівно ті типи, що є в області: ' + leg.shown)
+  : bad('легенда не збігається з даними: ' + JSON.stringify(leg));
 
 /* Пошук за назвою: іконка в шапці, живий фільтр, порожній результат. */
 /* .sub малюється великими літерами через CSS, тому порівнюємо
@@ -663,8 +669,11 @@ headSync.pressed === 'places' && /·\s*1$/.test(headSync.label.trim())
 const apos = await evaluate(`
   const el = document.getElementById('q');
   const out = [];
-  for (const q of ['пам\u2019ятка', "пам'ятка"]) { V.q = q; out.push(POINTS.filter(hits).length); }
-  V.q = 'церква'; const churches = POINTS.filter(hits).length;
+  for (const q of ['пам\u2019ятка', "пам'ятка"]) { V.q = q; out.push(regPoints().filter(hits).length); }
+  /* Рахуємо по своїй області: «Андріївська церква» є в Києві, і на
+     глобальному списку тест сперечався б із тим, що застосунок
+     свідомо не показує. */
+  V.q = 'церква'; const churches = regPoints().filter(hits).length;
   V.q = 'олеськ'; el.value = 'олеськ';
   return { same: out[0] === out[1], churches };
 `);
@@ -696,6 +705,73 @@ const closed = await evaluate(`return {
 
 await shot('11-home');
 await click('[data-tab="places"]');
+
+/* ── 11b. Області ────────────────────────────────────────────────── */
+/* Стаємо під Києвом — застосунок мусить сам перемкнутись на Київщину
+   і показати саме її точки, маршрути й банер тривоги. */
+await standAt(50.1139, 30.8657);   /* Витачів */
+await sleep(1200);
+const kyiv = await evaluate(`return {
+  region: V.region,
+  places: [...document.querySelectorAll('#mlist .card')].map(c => c.dataset.open),
+  alarm: document.querySelector('.over .alert')?.innerText || '',
+  regsel: document.querySelector('.regsel')?.innerText.trim() || ''
+}`);
+kyiv.region === 'kyiv'
+  ? ok('за положенням обрано Київщину')
+  : bad('область не перемкнулась: ' + kyiv.region);
+kyiv.places.length === 7 && kyiv.places.every(id => ['sofia','lavra','zoloti','andriiv','zamkova','vytachiv','divych'].includes(id))
+  ? ok('у списку лише київські точки, найближча — ' + kyiv.places[0])
+  : bad('у списку чужі точки: ' + JSON.stringify(kyiv.places));
+kyiv.places[0] === 'vytachiv'
+  ? ok('найближчою стала точка, на якій ми стоїмо')
+  : bad('найближча не та: ' + kyiv.places[0]);
+/* Банер тривоги — безпековий шар: він мусить називати ту область,
+   у якій ви є, інакше він гірший за відсутній. */
+kyiv.alarm.includes('Київській обл.')
+  ? ok('банер тривоги назвав Київську область')
+  : bad('банер лишився чужим: ' + kyiv.alarm.slice(0, 60));
+kyiv.regsel === 'Київщина' ? ok('перемикач показує Київщину') : bad('перемикач: ' + kyiv.regsel);
+
+await click('[data-tab="routes"]');
+await sleep(300);
+/* ROUTES живе в сторінці, не в тесті — питаємо про область там. */
+const kroutes = await evaluate(`
+  const ids = [...document.querySelectorAll('#mlist .card')].map(c => c.dataset.route);
+  return { ids, alien: ids.filter(id => (ROUTES.find(r => r.id === id) || {}).reg !== 'kyiv') };
+`);
+kroutes.ids.length === 4 && !kroutes.alien.length
+  ? ok('маршрути теж лише київські: ' + kroutes.ids.length)
+  : bad('маршрути з чужої області: ' + JSON.stringify(kroutes));
+await click('[data-tab="places"]');
+await shot('11b-kyiv');
+
+/* Пошук обмежений областю — але не мусить бути глухим кутом:
+   якщо точка є в іншій області, застосунок пропонує перейти. */
+await click('[data-act="search-on"]');
+await evaluate(`
+  const el = document.getElementById('q');
+  el.value = 'олеськ';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  return null;
+`);
+await sleep(400);
+(await $('[data-goreg="lviv"]'))
+  ? ok('порожній пошук підказує іншу область замість глухого кута')
+  : bad('пошук мовчить про точку, яка є в іншій області');
+await click('[data-goreg="lviv"]');
+await sleep(500);
+const jumped = await evaluate(`return {
+  region: V.region, saved: S.region,
+  ids: [...document.querySelectorAll('#mlist .card')].map(c => c.dataset.open)
+}`);
+jumped.region === 'lviv' && jumped.ids.length === 1 && jumped.ids[0] === 'olesko'
+  ? ok('перехід в іншу область зберігає запит і показує знайдене')
+  : bad('перехід загубив запит: ' + JSON.stringify(jumped));
+jumped.saved === 'lviv'
+  ? ok('вибір руками записано, щоб пережив перезапуск')
+  : bad('вибір області не збережено: ' + jumped.saved);
+await click('[data-act="search-off"]');
 
 /* ── 12. Шторки замість системних діалогів ───────────────────────── */
 await click('[data-nav="map"]');

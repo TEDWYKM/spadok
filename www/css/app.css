@@ -409,3 +409,11 @@ body.mapv .body{padding:0;overflow:hidden;display:flex}
   padding:10px 15px;font:inherit;font-size:13.5px;background:var(--card);color:var(--ink)}
 .qfield:focus{outline:2px solid var(--verd);outline-offset:1px}
 .qfield::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none}
+
+/* Перемикач області у шапці шторки. Виглядає як текст із галочкою,
+   а не як кнопка: перемикають його рідко, і він не має сперечатися
+   за увагу з вкладками й сортуванням. */
+.regsel{display:inline-flex;align-items:center;gap:5px;padding:5px 11px 5px 12px;
+  border:1px solid var(--line-2);border-radius:var(--r-pill);font-size:12.5px;font-weight:600;
+  background:transparent}
+.regsel svg{width:13px;height:13px;stroke:var(--ink-3);fill:none;stroke-width:2;stroke-linecap:round}
