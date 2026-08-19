@@ -35,11 +35,13 @@ for (const [name, src] of [['data.js', data], ['app.js', appjs], ['sw.js', readF
 const ctx = { console };
 try {
   vm.createContext(ctx);
-  new vm.Script(data + '\n;globalThis.__d={POINTS,ROUTES,THEMES,SIZES,BADGES,STATUS_FRESH_DAYS,ARRIVE_RADIUS_M};')
+  new vm.Script(data + '\n;globalThis.__d={POINTS,ROUTES,THEMES,SIZES,BADGES,' +
+    'STATUS_FRESH_DAYS,STATUS_STALE_DAYS,ARRIVE_RADIUS_M};')
     .runInContext(ctx);
 } catch (e) { bad('data.js не виконався: ' + e.message); }
 
 const D = ctx.__d;
+const age = p => Math.floor((Date.now() - new Date(p.upd).getTime()) / 864e5);
 if (D) {
   const ids = D.POINTS.map(p => p.id);
   const dup = ids.filter((x, i) => ids.indexOf(x) !== i);
@@ -75,12 +77,17 @@ if (D) {
         if (!ids.includes(id)) bad(r.id + ': точка ' + id + ' не існує');
       });
     });
-    /* Маршрут із однієї недоступної точки лишив би користувача ні з чим. */
-    const routable = r.days.flat().filter(id => {
-      const p = D.POINTS.find(x => x.id === id);
-      return p && p.st !== 'closed' && p.st !== 'occupied';
+    /* Той самий фільтр, що й routable() в app.js: закрито, під окупацією
+       або перевірка протухла. День без жодної прохідної точки рендериться
+       порожнім, тому це перевіряється по днях, а не лише по маршруту. */
+    r.days.forEach((d, i) => {
+      const pass = d.filter(id => {
+        const p = D.POINTS.find(x => x.id === id);
+        return p && p.st !== 'closed' && p.st !== 'occupied' && age(p) <= D.STATUS_STALE_DAYS;
+      });
+      if (d.length && !pass.length)
+        bad(r.id + ', день ' + (i + 1) + ': жодної прохідної точки — трек буде порожній');
     });
-    if (!routable.length) bad(r.id + ': усі точки недоступні — маршрут не прокладеться');
   });
   ok('маршрути посилаються тільки на наявні точки');
 
@@ -103,6 +110,22 @@ if (D) {
 
   if (!(D.ARRIVE_RADIUS_M > 0)) bad('ARRIVE_RADIUS_M не заданий');
   if (!(D.STATUS_FRESH_DAYS > 0)) bad('STATUS_FRESH_DAYS не заданий');
+  if (!(D.STATUS_STALE_DAYS > D.STATUS_FRESH_DAYS))
+    bad('STATUS_STALE_DAYS має бути більшим за STATUS_FRESH_DAYS');
+
+  /* ── Свіжість самих даних ──────────────────────────────────────────
+     Це не перевірка коду, а перевірка того, що хтось таки ходив
+     і звіряв статуси. Спека, правило 2: протухлі точки випадають
+     з продукту, тож випускати реліз із ними — випускати діри. */
+  const stale = D.POINTS.filter(p => age(p) > D.STATUS_FRESH_DAYS && age(p) <= D.STATUS_STALE_DAYS);
+  const gone = D.POINTS.filter(p => age(p) > D.STATUS_STALE_DAYS);
+  if (gone.length)
+    bad(`перевірка статусу протухла (>${D.STATUS_STALE_DAYS} дн.) у ${gone.length} точок: ` +
+      gone.map(p => p.id).join(', ') + '. Звірте доступність і оновіть upd у data.js');
+  else if (stale.length)
+    console.log(`  · перевірка застаріла (>${D.STATUS_FRESH_DAYS} дн.) у ${stale.length} точок: ` +
+      stale.map(p => p.id).join(', '));
+  else ok('перевірки статусу свіжі в усіх точках');
 }
 
 /* ── 4. Манифест ─────────────────────────────────────────────────── */
@@ -143,6 +166,15 @@ if (!/if\s*\(!vis\)/.test(appCode)) bad('ratingBlock без перевірки �
 else if (!/const vis = S\.visits\[id\];[\s\S]{0,200}if \(!vis\)/.test(appCode))
   bad('saveReview без перевірки відвідин — гейт можна обійти');
 else ok('гейт «оцінка тільки після відвідин» на місці');
+
+/* Правило 2 колись існувало тільки на папері: recommended() був
+   оголошений і ніде не використаний, а протухла перевірка ніяк
+   не впливала на трек. Обидва regression-тести — щоб не повторилось. */
+if (!/const routable = p =>[^\n]*!expired\(p\)/.test(appCode))
+  bad('routable() не враховує протухлу перевірку — правило 2 знову декоративне');
+else if ((appCode.match(/recommended\(/g) || []).length < 2)
+  bad('recommended() оголошений, але ніде не використаний');
+else ok('правило 2 доведене до сортування і до треку');
 
 /* ── 6. Дрібні регресії ──────────────────────────────────────────── */
 if (/\balert\s*\(/.test(appCode) || /\bconfirm\s*\(/.test(appCode))

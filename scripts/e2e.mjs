@@ -325,7 +325,50 @@ after.visits === 3 && after.ratings === 1 && after.done === 1
   ? ok('після перезапуску прогрес на місці: ' + JSON.stringify(after))
   : bad('прогрес втрачено при перезапуску: ' + JSON.stringify(after));
 
-/* ── 9. Шторки замість системних діалогів ────────────────────────── */
+/* ── 9. Два пороги свіжості статусу ──────────────────────────────── */
+/* Правило 2 довго жило тільки в тексті спеки: recommended() був
+   оголошений і ніде не викликаний. Тут точку штучно «старять»
+   і дивляться, куди вона з цього дівається — у списку і в треку. */
+const tiers = await evaluate(`
+  const p = P('univ'), was = p.upd;
+  const at = d => new Date(Date.now() - d * 864e5).toISOString().slice(0, 10);
+  const snap = () => {
+    V.screen = 'map'; V.sort = 'pop'; render();
+    const el = document.querySelector('[data-open="univ"]');
+    const cards = [...document.querySelectorAll('.card[data-open]')].map(c => c.dataset.open);
+    const s = routeStats(ROUTES.find(r => r.id === 'ruins'));
+    return {
+      tag: !el ? 'нема картки' : el.querySelector('.tag.old') ? 'old'
+        : el.querySelector('.tag.stale') ? 'stale' : 'none',
+      rank: cards.indexOf('univ'),
+      blocked: s.blocked.includes('univ'),
+      stale: s.stale.includes('univ')
+    };
+  };
+  p.upd = at(5);   const a = snap();
+  p.upd = at(70);  const b = snap();
+  p.upd = at(130); const c = snap();
+  p.upd = was; render();
+  return { fresh: a, stale: b, gone: c, restored: p.upd === was };
+`);
+tiers.fresh.tag === 'none' && !tiers.fresh.blocked
+  ? ok('свіжа перевірка: без позначки, точка в треку')
+  : bad('свіжа точка поводиться не так: ' + JSON.stringify(tiers.fresh));
+tiers.stale.tag === 'stale' && !tiers.stale.blocked && tiers.stale.stale
+  ? ok('70 днів: позначка є, точка лишилась у треку')
+  : bad('середній ярус зламаний: ' + JSON.stringify(tiers.stale));
+tiers.gone.tag === 'old' && tiers.gone.blocked
+  ? ok('130 днів: точка випала з треку, як закрита')
+  : bad('протухла точка не випала: ' + JSON.stringify(tiers.gone));
+tiers.stale.rank > tiers.fresh.rank && tiers.gone.rank >= tiers.stale.rank
+  ? ok('нерекомендовані опускаються нижче: ' + tiers.fresh.rank + ' → ' +
+      tiers.stale.rank + ' → ' + tiers.gone.rank)
+  : bad('порядок у «найпопулярніших» не залежить від свіжості: ' +
+      [tiers.fresh.rank, tiers.stale.rank, tiers.gone.rank].join(' → '));
+await shot('09-status-tiers');
+
+/* ── 10. Шторки замість системних діалогів ───────────────────────── */
+await click('[data-nav="map"]');
 await click('[data-open="tustan"]');
 await click('[data-act="report"]');
 (await $('.scrim .sheet')) ? ok('«повідомити про проблему» відкриває шторку') : bad('шторка не відкрилась');
@@ -335,7 +378,7 @@ await click('[data-sheet="1"]');
 (await $('.toast')) ? ok('після вибору показано підтвердження') : bad('немає підтвердження');
 !(await $('.scrim')) ? ok('шторка закрилась') : bad('шторка лишилась відкритою');
 
-/* ── 10. Карта без мережі ────────────────────────────────────────── */
+/* ── 11. Карта без мережі ────────────────────────────────────────── */
 /* У цьому середовищі плитки й CDN заблоковані, тому перевіряємо
    саме той шлях, який побачить користувач у зоні без зв'язку. */
 await click('[data-nav="map"]');
@@ -349,7 +392,7 @@ map.fallback || map.leaflet
   : bad('карта не показала ні себе, ні схему');
 await shot('10-map-offline');
 
-/* ── 11. Помилки в консолі ───────────────────────────────────────── */
+/* ── 12. Помилки в консолі ───────────────────────────────────────── */
 await sleep(300);
 errors.length === 0
   ? ok('консоль чиста')

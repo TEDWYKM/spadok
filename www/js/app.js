@@ -14,7 +14,8 @@
         у WebView Android системні діалоги ненадійні.
      5. Маршрут не прокладається через точки з непідтвердженим
         статусом. Правило 3 зі спеки.
-     6. Свіжість перевірки статусу враховується. Правило 2.
+     6. Свіжість перевірки статусу враховується двома порогами:
+        STATUS_FRESH_DAYS і STATUS_STALE_DAYS. Правило 2.
      7. Офлайн працює через service worker, а не міняє підпис кнопки.
    ═══════════════════════════════════════════════════════════════════ */
 
@@ -147,11 +148,23 @@ function routeStats(r) {
     days: r.days.length,
     warn: st.some(id => P(id).st === 'warn'),
     blocked: st.filter(id => !routable(P(id))),
-    stale: st.filter(id => !fresh(P(id)))
+    /* Застарілі — це середній ярус: точка ще в маршруті, але з позначкою.
+       Протухлі вже пораховані у blocked, двічі про них не пишемо. */
+    stale: st.filter(id => !fresh(P(id)) && !expired(P(id)))
   };
 }
 
 const hhmm = m => (m >= 60 ? Math.floor(m / 60) + ' год ' : '') + (m % 60) + ' хв';
+
+/* Українська форма іменника після числа. Раніше в інтерфейсі стояло
+   жорстке «точку» незалежно від кількості. */
+function plural(n, one, few, many) {
+  const d = n % 10, h = n % 100;
+  if (d === 1 && h !== 11) return one;
+  if (d >= 2 && d <= 4 && (h < 12 || h > 14)) return few;
+  return many;
+}
+const pts = n => n + ' ' + plural(n, 'точка', 'точки', 'точок');
 
 function stamp(ts) {
   const d = new Date(ts), p = n => String(n).padStart(2, '0');
@@ -166,12 +179,37 @@ const daysSince = iso => Math.floor((Date.now() - new Date(iso).getTime()) / 864
 
 /* ── Правила зі спеки, розділ 5 ─────────────────────────────────────
    Правило 2: точка зі застарілою перевіркою не вважається
-              підтвердженою і не потрапляє в «рекомендовані».
+              підтвердженою і не потрапляє в «рекомендовані»;
+              коли перевірка протухла зовсім (STATUS_STALE_DAYS),
+              статусу вже не можна вірити — точка випадає і з треку.
    Правило 3: маршрут не прокладається через точки, чий статус
               не підтверджений (закрито / під окупацією).            */
 const fresh = p => daysSince(p.upd) <= STATUS_FRESH_DAYS;
-const routable = p => p.st !== 'closed' && p.st !== 'occupied';
+const expired = p => daysSince(p.upd) > STATUS_STALE_DAYS;
+const routable = p => p.st !== 'closed' && p.st !== 'occupied' && !expired(p);
 const recommended = p => p.st === 'ok' && fresh(p);
+
+/* Чому точка не рекомендована. Причини дві — доступ і давність перевірки —
+   і показувати треба ту, що справді є, а не зручнішу. */
+function recWhy(list) {
+  const shut = list.filter(p => p.st !== 'ok').length;
+  const old = list.length - shut;
+  /* Коли причина одна, число вже назване вище — не повторюємо його. */
+  if (!old) return 'обмежений або закритий доступ';
+  if (!shut) return 'перевірка статусу давніша за ' + STATUS_FRESH_DAYS + ' днів';
+  return shut + ' з обмеженим доступом, ' + old + ' з перевіркою давнішою за ' +
+    STATUS_FRESH_DAYS + ' днів';
+}
+
+/* Чому саме точку обійшли. Причини дві, і користувач має бачити, яка. */
+function blockedWhy(ids) {
+  const shut = ids.filter(id => P(id).st === 'closed' || P(id).st === 'occupied').length;
+  const old = ids.length - shut;
+  const why = [];
+  if (shut) why.push(pts(shut) + ' зі статусом «закрито» або «під окупацією» — правило 3');
+  if (old) why.push(pts(old) + ' з перевіркою давнішою за ' + STATUS_STALE_DAYS + ' днів — правило 2');
+  return why.join('; ');
+}
 
 /* Індекс дня, у якому лежить зупинка за наскрізним номером. */
 function dayOf(r, i) {
@@ -469,8 +507,11 @@ function stTag(p) {
   const st = typeof p === 'string' ? p : p.st;
   const cls = st === 'ok' ? 'ok' : st === 'warn' ? 'warn' : 'stop';
   let h = '<span class="tag ' + cls + '">' + (ST_LABEL[st] || st) + '</span>';
-  /* Правило 2: якщо перевірка застаріла, статус не вважається підтвердженим. */
-  if (typeof p === 'object' && !fresh(p))
+  /* Правило 2, два яруси. Обидва рядки лишаються літералами навмисно:
+     check.mjs звіряє класи .tag з CSS саме пошуком по тексту. */
+  if (typeof p === 'object' && expired(p))
+    h += '<span class="tag old">перевірка ' + daysSince(p.upd) + ' дн.</span>';
+  else if (typeof p === 'object' && !fresh(p))
     h += '<span class="tag stale">перевірка ' + daysSince(p.upd) + ' дн.</span>';
   return h;
 }
@@ -539,8 +580,15 @@ const Alarms = {
 function scrMap() {
   const list = V.theme === 'all' ? POINTS : POINTS.filter(p => p.t.indexOf(V.theme) > -1);
   const base = P('rynok');
+  /* Правило 2 доведене до інтерфейсу. Рекомендована точка — доступна
+     (st === 'ok') і зі свіжою перевіркою. Решта не зникає: опускається
+     під рекомендовані, з підписом, чому саме. У «найближчих» порядок
+     задає відстань — підміняти її означало б брехати про дорогу. */
   const sorted = list.slice().sort((a, b) =>
-    V.sort === 'pop' ? b.pop - a.pop : dist(base, a) - dist(base, b));
+    V.sort === 'pop'
+      ? (recommended(b) - recommended(a)) || (b.pop - a.pop)
+      : dist(base, a) - dist(base, b));
+  const notRec = V.sort === 'pop' ? list.filter(p => !recommended(p)) : [];
   MOUNT = { points: list };
 
   return '<div>' + (V.swUpdate ? updBanner() : '') + Alarms.banner() +
@@ -553,6 +601,8 @@ function scrMap() {
     ' точок · ' + Object.keys(S.visits).length + ' відвідано</span>' +
     '<button class="btn-sm" data-act="sort">' +
     (V.sort === 'pop' ? 'Найпопулярніші' : 'Найближчі') + ' ⇅</button></div>' +
+    (notRec.length ? '<p class="meta" style="margin:-4px 0 10px">' +
+      pts(notRec.length) + ' нижче рекомендованих: ' + recWhy(notRec) + '.</p>' : '') +
     sorted.map(p => {
       const d = Math.round(dist(base, p));
       const my = S.ratings[p.id];
@@ -598,7 +648,8 @@ function scrRoutes() {
 
 function scrRoute() {
   const r = ROUTES.find(x => x.id === V.route), s = routeStats(r);
-  /* Правило 3: недоступні точки не потрапляють у прокладений трек. */
+  /* Правила 2 і 3: у трек не потрапляють ні закриті точки, ні ті,
+     чия перевірка статусу протухла — routable() перевіряє обидва. */
   MOUNT = {
     points: flat(r).map(P),
     legs: r.days.map(d => [r.from].concat(d.filter(id => routable(P(id))), [r.from]))
@@ -606,11 +657,12 @@ function scrRoute() {
   const off = S.offline.indexOf(r.id) > -1;
 
   return '<div><div id="lmap" class="lmap tall"></div>' + mapBar() +
-    (s.blocked.length ? '<div class="alert" style="margin-top:12px"><b>' + s.blocked.length +
-      ' точку з маршруту обійдено.</b><br>Статус не підтверджений, тому трек прокладено без неї — ' +
-      'правило 3 продуктової спеки.</div>' : '') +
-    (s.stale.length ? '<div class="alert" style="margin-top:12px">Перевірка статусу застаріла у ' +
-      s.stale.length + ' точок. Уточніть доступність перед виїздом.</div>' : '') +
+    (s.blocked.length ? '<div class="alert" style="margin-top:12px"><b>Обійдено ' +
+      s.blocked.length + ' ' + plural(s.blocked.length, 'точку', 'точки', 'точок') +
+      '.</b><br>Трек прокладено без них: ' + blockedWhy(s.blocked) + '.</div>' : '') +
+    (s.stale.length ? '<div class="alert" style="margin-top:12px">Перевірка статусу застаріла: ' +
+      pts(s.stale.length) + '. Точки лишилися в маршруті, але доступність варто ' +
+      'уточнити перед виїздом.</div>' : '') +
     '<div class="grid3" style="margin:14px 0">' +
     '<div class="stat"><b>' + s.km + '</b><span>кілометрів</span></div>' +
     '<div class="stat"><b>' + s.days + '</b><span>' + (s.days === 1 ? 'день' : 'дні') + '</span></div>' +
@@ -773,7 +825,8 @@ function scrProfile() {
   const vis = Object.keys(S.visits).map(k => [k, S.visits[k]]).sort((a, b) => b[1].at - a[1].at);
   const rated = Object.keys(S.ratings).length;
   const byGps = vis.filter(v => v[1].by === 'gps').length;
-  const stale = POINTS.filter(p => !fresh(p)).length;
+  const stale = POINTS.filter(p => !fresh(p) && !expired(p)).length;
+  const gone = POINTS.filter(p => expired(p)).length;
   const oldest = POINTS.map(p => p.upd).sort()[0];
 
   return '<div><div class="grid3" style="margin-bottom:16px">' +
@@ -805,10 +858,15 @@ function scrProfile() {
         'з’явиться тут.</p>') +
     '<div class="rule"></div><span class="eyebrow">Стан даних</span>' +
     '<div class="card" style="margin-top:9px"><div class="between"><span class="meta">' +
-    'Свіжих перевірок статусу</span><b style="font-size:13.5px">' + (POINTS.length - stale) +
+    'Свіжих перевірок статусу</span><b style="font-size:13.5px">' + (POINTS.length - stale - gone) +
     ' / ' + POINTS.length + '</b></div>' +
+    (stale || gone ? '<p class="meta" style="margin:7px 0 0;line-height:1.45">' +
+      (stale ? 'Застарілих — ' + stale + (gone ? ', ' : '. ') : '') +
+      (gone ? 'протухлих — ' + gone + '. ' : '') +
+      'Протухлі не потрапляють ні в рекомендовані, ні в трек маршруту.</p>' : '') +
     '<p class="meta" style="margin:7px 0 0;line-height:1.45">Найдавніша перевірка — ' + dmy(oldest) +
-    '. Свіжою вважається молодша за ' + STATUS_FRESH_DAYS + ' днів.</p>' +
+    '. Свіжою вважається молодша за ' + STATUS_FRESH_DAYS + ' днів, ' +
+    'протухлою — старша за ' + STATUS_STALE_DAYS + '.</p>' +
     '<p class="meta" style="margin:5px 0 0">Прогрес: ' +
     (Store.kind === 'local' ? 'зберігається на пристрої' : 'лише в пам’яті сесії') + '</p></div>' +
     '<button class="btn-sm" style="width:100%;margin-top:10px" data-act="reset">Очистити прогрес</button></div>';

@@ -136,7 +136,12 @@ h1,h2,h3{font-family:"Unbounded",system-ui,sans-serif;font-weight:600;letter-spa
 /* Статуси точки. У прототипі клас .tag.stop згадувався в коді,
    але правила для нього не існувало — точка «закрито» рендерилась без стилю. */
 .tag.stop{color:#8B2F2F;border-color:rgba(139,47,47,.42);background:rgba(139,47,47,.08)}
+/* Два яруси застарілої перевірки: .stale — приглушена позначка, точка ще
+   в маршруті; .old — перевірка протухла, точка випала з треку, тож
+   позначка має важити візуально стільки ж, скільки «закрито». */
 .tag.stale{color:var(--ink-3);border-color:var(--line-2);background:rgba(21,36,46,.04)}
+.tag.old{color:var(--copper);border-color:rgba(168,84,43,.4);background:rgba(168,84,43,.1);
+  text-decoration:underline;text-decoration-style:dotted;text-underline-offset:2px}
 
 /* Замок замість зорепаду, поки відвідини не підтверджені.
    Це і є правило 1 зі спеки, доведене до інтерфейсу. */

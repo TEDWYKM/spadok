@@ -1,0 +1,16 @@
+node_modules/
+
+# Android-проєкт генерується Capacitor'ом у CI: `npx cap add android`.
+# У git тримати немає сенсу — це кілька сотень згенерованих файлів,
+# а наші правки вносить scripts/patch-android.mjs.
+/android/
+
+# Leaflet кладе туди scripts/vendor.mjs під час збірки.
+/www/vendor/
+
+# Артефакти тестів і збірок
+/.e2e/
+*.apk
+*.aab
+*.keystore
+!/android-res/
