@@ -270,7 +270,7 @@ await shot('04-journey-far');
    тест не має права припускати, що першою буде саме та точка, яка
    лежить першою в даних. Питаємо застосунок, куди він веде. */
 const aim = await evaluate(`
-  const r = ROUTES.find(x => x.id === V.route);
+  const r = R();
   const id = flat(r)[V.idx];
   return { id, lat: P(id).lat, lon: P(id).lon,
            order: V.plan.days[0].join(','), byGps: V.plan.byGps };
@@ -899,7 +899,140 @@ map.fallback || map.leaflet
   : bad('карта не показала ні себе, ні схему');
 await shot('10-map-offline');
 
-/* ── 14. Версія і кеші ───────────────────────────────────────────────
+/* ── 14. Маршрут до однієї точки ─────────────────────────────────────
+   Маршрут — не єдиний привід кудись поїхати. Перевіряємо, що поїздка
+   до однієї памʼятки проходить увесь той самий шлях, що й подорож —
+   трек, дорожній режим, прибуття, оцінка, — і при цьому не вдає,
+   що була маршрутом. */
+await standAt(49.9000, 24.6000); /* десь між Олеськом і Золочевом */
+await sleep(600);
+await click('[data-nav="map"]');
+await click('[data-open="pidkamin"]');
+
+(await $('[data-act="route-here"]'))
+  ? ok('у картці точки є кнопка маршруту до неї')
+  : bad('немає кнопки «Прокласти маршрут сюди»');
+await click('[data-act="route-here"]');
+await sleep(450);
+
+/* З попереднього розділу тут ще висить незавершена подорож маршрутом.
+   Застосунок мусить сказати, що вона перерветься, а не стерти її мовчки. */
+(await $('.scrim .sheet'))
+  ? ok('попереджає, що поточна подорож перерветься')
+  : bad('нова поїздка мовчки стерла незавершену подорож');
+const busy = (await text('.sheet .lede')) || '';
+/перерветься/i.test(busy)
+  ? ok('сказано прямо, що станеться з поточною подорожжю')
+  : bad('попередження не про те: ' + busy);
+await click('[data-sheet="0"]');
+await sleep(900);
+
+/* Ланцюг рахуємо тими самими функціями, якими його малює застосунок:
+   у цій пісочниці Leaflet не вантажиться, і карта падає на схему,
+   тому питати намальований шар було б перевіркою пісочниці. */
+const solo = await evaluate(`
+  const r = R();
+  const chain = endLeg(r, [legOrigin(r, flat(r))].concat(restOfDay(r)));
+  return {
+    screen: V.screen, route: V.route, solo: !!r.solo,
+    target: flat(r)[V.idx],
+    eyebrow: (document.querySelector('.card .eyebrow') || {}).innerText || '',
+    leg: chain.length,
+    endsAtBase: !!(chain[chain.length - 1] || {}).id &&
+      chain[chain.length - 1].id === r.from
+  };
+`);
+solo.screen === 'journey' && solo.route === 'solo:pidkamin' &&
+  solo.solo && solo.target === 'pidkamin'
+  ? ok('поїздка до однієї точки почалась')
+  : bad('одноточкова подорож не стартувала: ' + JSON.stringify(solo));
+/* Маршрут — кільце з поверненням до бази, поїздка — відрізок. Зайва
+   ланка означала б, що людину ведуть додому через Олесько. */
+solo.leg === 2 && !solo.endsAtBase
+  ? ok('трек іде від вас до точки й нікуди не повертається')
+  : bad('трек із ' + solo.leg + ' ланок' + (solo.endsAtBase ? ' і повертається до бази' : '') +
+    ' — поїздку зробили кільцем');
+/однієї точки/i.test(solo.eyebrow)
+  ? ok('підпис не вдає день маршруту: ' + solo.eyebrow)
+  : bad('підпис лишився маршрутним: ' + solo.eyebrow);
+await shot('12-solo');
+
+await click('[data-act="road-on"]');
+await sleep(600);
+const sroad = await evaluate(`return {
+  on: !!document.querySelector('.roadv'),
+  next: (document.querySelector('#rnext') || {}).innerText || '',
+  eta: (document.querySelector('.reta') || {}).innerText || ''
+}`);
+sroad.on ? ok('дорожній режим працює й для однієї точки') : bad('дорожній режим не відкрився');
+/єдина точка/i.test(sroad.next)
+  ? ok('замість «остання зупинка дня» — «єдина точка»')
+  : bad('дорожній режим говорить про день: ' + sroad.next.replace(/\n/g, ' '));
+/км до точки/i.test(sroad.eta)
+  ? ok('лічильник рахує до точки, а не до кінця дня')
+  : bad('лічильник лишився денним: ' + sroad.eta.replace(/\n/g, ' '));
+await click('[data-act="road-off"]');
+
+/* Прибуття, гейт оцінки — та сама механіка, що й на маршруті. */
+await standAt(49.9333, 25.2500); /* Підкамінь */
+await sleep(1400);
+const came = await evaluate(`return {
+  screen: V.screen, visit: !!S.visits.pidkamin,
+  gate: !!document.querySelector('.gate'),
+  picker: !!document.querySelector('[data-star]')
+}`);
+came.screen === 'point' && came.visit
+  ? ok('прибуття зарахувалось, картка відкрилась сама')
+  : bad('прибуття в одноточковій поїздці не спрацювало: ' + JSON.stringify(came));
+!came.gate && came.picker
+  ? ok('правило 1 працює й тут: оцінка відкрилась після прибуття')
+  : bad('гейт оцінки не відкрився після прибуття');
+
+const doneWas = await evaluate('return S.done.length');
+await click('[data-act="continue"]');
+await sleep(600);
+const sfin = await evaluate(`return {
+  screen: V.screen,
+  head: (document.querySelector('h2') || {}).innerText || '',
+  done: S.done.length,
+  hasSolo: S.done.some(id => String(id).indexOf('solo:') === 0)
+}`);
+sfin.screen === 'finish' ? ok('екран завершення відкрився') : bad('фініш не відкрився: ' + sfin.screen);
+sfin.done === doneWas && !sfin.hasSolo
+  ? ok('поїздка до однієї точки не пішла в «маршрути пройдено»')
+  : bad('лічильник маршрутів виріс без маршруту: ' + JSON.stringify(sfin));
+await shot('12b-solo-finish');
+
+/* Правило 3 не має мовчки стирати єдину точку треку. Людину
+   попереджають — і далі вона вирішує сама. */
+await evaluate(`P('pidhirtsi').st = 'closed'; return 1`);
+await click('[data-nav="map"]');
+await click('[data-open="pidhirtsi"]');
+await click('[data-act="route-here"]');
+await sleep(400);
+(await $('.scrim .sheet'))
+  ? ok('до зачиненої точки застосунок спершу попереджає')
+  : bad('маршрут до зачиненої точки проклався мовчки');
+const warn = (await text('.sheet .lede')) || '';
+/зачинен/i.test(warn)
+  ? ok('попередження називає причину')
+  : bad('попередження без причини: ' + warn);
+await click('[data-sheet="0"]');
+await sleep(800);
+const forced = await evaluate(`
+  const r = R();
+  const chain = endLeg(r, [legOrigin(r, flat(r))].concat(restOfDay(r)));
+  return {
+    route: V.route, target: flat(r)[V.idx], leg: chain.length,
+    kept: chain.some(p => p && p.id === 'pidhirtsi')
+  };
+`);
+forced.route === 'solo:pidhirtsi' && forced.target === 'pidhirtsi' && forced.leg === 2 && forced.kept
+  ? ok('після свідомої згоди точка лишилась у треку, а не зникла мовчки')
+  : bad('після згоди трек не проклався: ' + JSON.stringify(forced));
+await evaluate(`P('pidhirtsi').st = 'warn'; return 1`);
+
+/* ── 15. Версія і кеші ───────────────────────────────────────────────
    Найтихіший баг цього проєкту: оболонка оновилась, а пристрій цього
    не помітив, бо version у sw.js не мінялась. Перевіряємо весь ланцюг
    одразу — число в package.json, те саме число на екрані профілю
@@ -934,7 +1067,7 @@ cacheNames.includes('spadok-tiles-' + shipped)
   ? bad('кеш плиток названий по версії застосунку — наступний реліз зітре викачану карту')
   : ok('кеш плиток не привʼязаний до версії застосунку');
 
-/* ── 15. Помилки в консолі ───────────────────────────────────────── */
+/* ── 16. Помилки в консолі ───────────────────────────────────────── */
 await sleep(300);
 errors.length === 0
   ? ok('консоль чиста')

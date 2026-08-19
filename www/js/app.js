@@ -105,6 +105,9 @@ let V = {
      plan — порядок точок саме цієї подорожі, перебудований під
      положення на старті; у даних маршрут лишається недоторканим. */
   road: false, roadBack: false, follow: true, followAnim: false, plan: null,
+  /* Подорож дійшла до екрана завершення. Маршрут ще лежить у V.route —
+     фініш його показує, — але триваючою подорожжю вже не є. */
+  ended: false,
   /* Пошук: q — сам запит, searching — чи розгорнуте поле в шапці. */
   q: '', searching: false,
   /* Область, яку зараз показуємо. null — ще не визначились:
@@ -171,6 +174,62 @@ function setRegion(k) {
    екрани маршруту й подорожі не розходились між собою. */
 const planDays = r => (V.plan && V.plan.id === r.id) ? V.plan.days : r.days;
 const flat = r => planDays(r).reduce((a, d) => a.concat(d), []);
+
+/* ── Поїздка до однієї точки ─────────────────────────────────────────
+   Маршрут — не єдиний привід кудись поїхати. Часто людина просто хоче
+   сьогодні дістатися до конкретної памʼятки, і вимагати від неї обрати
+   готовий маршрут із пʼятьма зупинками означає не пустити її нікуди.
+
+   Щоб не заводити другу гілку логіки поруч із подорожжю, така поїздка
+   зібрана як маршрут з одного дня й однієї зупинки. Тоді карта, трек,
+   дорожній режим, підтвердження прибуття й гейт оцінки працюють тим
+   самим кодом, який уже перевірений, — а не схожим на нього.
+
+   Різниця рівно одна, і вона в геометрії: маршрут — це кільце
+   з поверненням до бази, а поїздка до однієї точки — відрізок,
+   якому нікуди повертатися. Її тримає endLeg().                    */
+const SOLO = 'solo:';
+const isSolo = id => typeof id === 'string' && id.indexOf(SOLO) === 0;
+
+function soloRoute(pid) {
+  const p = P(pid);
+  if (!p) return null;
+  return {
+    id: SOLO + pid, solo: true, reg: p.reg, size: 's',
+    n: p.n, d: 'Поїздка до однієї точки',
+    from: REGIONS[p.reg].base, days: [[pid]], t: p.t.slice()
+  };
+}
+
+/* Маршрут поточної подорожі: справжній зі списку або зібраний на льоту
+   під одну точку. Одна функція на весь застосунок — інакше половина
+   екранів шукала б маршрут у ROUTES і не знаходила поїздки. */
+function R(id) {
+  const v = id === undefined ? V.route : id;
+  if (!v) return null;
+  return isSolo(v) ? soloRoute(v.slice(SOLO.length)) : (ROUTES.find(x => x.id === v) || null);
+}
+
+/* Замикання ланцюга точок. Маршрут повертається до бази на ночівлю,
+   поїздка до однієї точки — ні: дорога додому не є частиною подорожі
+   і не має ні малюватися треком, ні лізти в кілометри й час. */
+const endLeg = (r, chain) => r.solo ? chain : chain.concat([P(r.from)]);
+
+/* Правило 3 відсіює з треку точки з непідтвердженим статусом. Поїздка
+   до однієї точки — єдиний виняток: людину вже попередили шторкою, і
+   вона свідомо натиснула «все одно прокласти». Мовчки стерти після
+   цього єдину точку треку означало б не захистити її, а обдурити. */
+const inTrack = (r, id) => r.solo || routable(P(id));
+
+/* Звідки міряємо поїздку до однієї точки: від місця, з якого вона
+   почалась. Міряти від «зараз» означало б показати на фініші 0 км —
+   ви ж уже стоїте в тій точці. */
+const soloOrigin = r => (V.plan && V.plan.id === r.id && V.plan.from) ? V.plan.from : distFrom();
+
+/* Чи справді триває подорож. Після фінішу маршрут ще лежить у V.route,
+   бо екран завершення його показує, — але питати «перервати поточну
+   подорож?» після її кінця було б безглуздо. */
+const onTrip = () => !!V.route && !V.ended;
 
 /* Приймає і id точки, і сирі координати — щоб трек міг починатися
    від користувача, а не тільки від пам'ятки. */
@@ -252,11 +311,19 @@ function buildPlan(r, from, byGps) {
   const days = r.ord
     ? r.days.map(d => d.slice())
     : r.days.map((d, i) => orderDay(d, i === 0 ? from : base, base));
-  return { id: r.id, days, byGps: !!byGps, ord: !!r.ord };
+  /* Місце старту лишаємо в плані. Без нього поїздка до однієї точки
+     показала б на фініші 0 км: міряти від «зараз» безглуздо, коли ви
+     вже стоїте в точці. */
+  return {
+    id: r.id, days, byGps: !!byGps, ord: !!r.ord,
+    from: { lat: from.lat, lon: from.lon }
+  };
 }
 
 function dayKm(r, d) {
-  const chain = [P(r.from)].concat(d.map(P), [P(r.from)]);
+  /* Поїздка до однієї точки міряється від вас і в один бік: кільця
+     тут немає, а дорога додому — не частина подорожі. */
+  const chain = endLeg(r, [r.solo ? soloOrigin(r) : P(r.from)].concat(d.map(P)));
   let k = 0;
   for (let i = 1; i < chain.length; i++) k += dist(chain[i - 1], chain[i]);
   return Math.round(k);
@@ -1455,12 +1522,12 @@ function scrRoutes() {
 }
 
 function scrRoute() {
-  const r = ROUTES.find(x => x.id === V.route), s = routeStats(r);
+  const r = R(), s = routeStats(r);
   /* Правила 2 і 3: у трек не потрапляють ні закриті точки, ні ті,
      чия перевірка статусу протухла — routable() перевіряє обидва. */
   MOUNT = {
     points: flat(r).map(P),
-    legs: planDays(r).map(d => [P(r.from)].concat(d.filter(id => routable(P(id))).map(P), [P(r.from)]))
+    legs: planDays(r).map(d => endLeg(r, [P(r.from)].concat(d.filter(id => inTrack(r, id)).map(P))))
   };
   const off = S.offline.indexOf(r.id) > -1;
 
@@ -1503,7 +1570,7 @@ function scrRoute() {
    плашка й перерахунок треку не розходились між собою. */
 function navTarget() {
   if (V.screen !== 'journey' || !V.route) return null;
-  const r = ROUTES.find(x => x.id === V.route);
+  const r = R();
   if (!r) return null;
   const st = flat(r);
   return st[V.idx] ? P(st[V.idx]) : null;
@@ -1524,15 +1591,15 @@ function restOfDay(r) {
   const d = dayOf(r, V.idx);
   const day = planDays(r)[d];
   const from = V.idx - dayStart(r, d);
-  return day.slice(from).filter(id => routable(P(id))).map(P);
+  return day.slice(from).filter(id => inTrack(r, id)).map(P);
 }
 
 function scrJourney() {
-  const r = ROUTES.find(x => x.id === V.route), st = flat(r), cur = P(st[V.idx]);
+  const r = R(), st = flat(r), cur = P(st[V.idx]);
   const d = dayOf(r, V.idx);
   const origin = legOrigin(r, st);
   const rest = restOfDay(r);
-  const chain = [origin].concat(rest, [P(r.from)]);
+  const chain = endLeg(r, [origin].concat(rest));
 
   MOUNT = {
     points: st.map(P),
@@ -1568,7 +1635,8 @@ function roadView(r, st, cur, d, chain) {
     '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>' +
     '<div class="rnext' + (Geo.state === 'live' ? '' : ' rwarn') + '" id="rnext">' +
     (Geo.state === 'live'
-      ? (next ? 'далі <b>' + esc(next.n) + '</b>' : 'остання зупинка дня')
+      ? (next ? 'далі <b>' + esc(next.n) + '</b>'
+        : r.solo ? 'єдина точка <b>цієї поїздки</b>' : 'остання зупинка дня')
       : 'сигналу немає <b>карта не веде без геолокації</b>') + '</div>' +
     '<div id="lmap" class="lmap"></div>' +
     '<div class="rbot">' +
@@ -1577,7 +1645,7 @@ function roadView(r, st, cur, d, chain) {
     '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>' +
     '</button>' +
     '<span class="reta"><b id="reta">' + hhmm(mins) + '</b>' +
-    '<span>' + Math.round(left) + ' км до кінця дня</span></span>' +
+    '<span>' + Math.round(left) + (r.solo ? ' км до точки' : ' км до кінця дня') + '</span></span>' +
     '<button class="rbtn round' + (Voice.on ? ' solid' : '') + '" data-act="voice" ' +
     'aria-pressed="' + Voice.on + '" aria-label="Озвучення підказок">' +
     (Voice.on
@@ -1605,15 +1673,22 @@ function cardView(r, st, cur, d, origin) {
      тому в підписах-eyebrow дроби пишемо скісною рискою. */
   return '<div><div id="lmap" class="lmap"></div>' + mapBar() +
     '<div style="margin-top:12px">' + geoBar(cur) + '</div>' +
-    '<div class="card"><span class="eyebrow">День ' + (d + 1) + ' / ' + planDays(r).length +
-    ' · зупинка ' + (V.idx + 1) + ' / ' + st.length + '</span>' +
+    '<div class="card"><span class="eyebrow">' +
+    (r.solo ? 'Поїздка до однієї точки'
+      : 'День ' + (d + 1) + ' / ' + planDays(r).length +
+        ' · зупинка ' + (V.idx + 1) + ' / ' + st.length) + '</span>' +
     '<h2 style="font-size:19px;margin:8px 0 6px">' + esc(cur.n) + '</h2>' +
     '<div class="row" style="gap:14px;flex-wrap:wrap"><span class="meta">' +
     (fromMe ? 'від вас' : esc(origin.n.split(',')[0])) + ' → ' + km + ' км</span>' +
     '<span class="meta">~' + Math.round(km / CONFIG.avgSpeedKmh * 60) + ' хв</span>' +
     stTag(cur) + '</div>' +
     '<p class="meta" style="margin:9px 0 0;line-height:1.45">' +
-    (V.plan && V.plan.ord
+    (r.solo
+      ? (fromMe
+        ? 'Трек прокладено від вашого місця. Прибуття зарахується так само, як на маршруті.'
+        : 'Без геолокації трек іде від ' + esc(P(r.from).n.split(',')[0]) +
+          '. Увімкніть місце — переміряємо від вас.')
+      : V.plan && V.plan.ord
       ? 'Порядок точок цього маршруту сюжетний і не переставляється.'
       : shuffled
         ? 'Порядок точок дня перебудовано під ваше положення на старті.'
@@ -1640,8 +1715,15 @@ function scrPoint() {
   const p = P(V.sel);
   const vis = S.visits[p.id];
   const my = S.ratings[p.id];
-  const r = V.route ? ROUTES.find(x => x.id === V.route) : null;
-  const inJ = !!r && V.from === 'journey' && flat(r)[V.idx] === p.id;
+  const r = R();
+  /* Три різні стани, і кнопка внизу в кожному інша:
+       inJ    — щойно приїхали сюди в межах подорожі, далі «Продовжити»;
+       onWay  — подорож веде саме сюди, але картку відкрили з карти:
+                тоді «Продовжити» зсунуло б лічильник зупинок без
+                відвідин, тому просто повертаємо на екран подорожі;
+       решта  — можна прокласти маршрут до цієї точки. */
+  const onWay = onTrip() && !!r && flat(r)[V.idx] === p.id;
+  const inJ = onWay && V.from === 'journey';
 
   return '<div><div class="plate">' + (V.media === 'photo' ? photoSVG(p) : reconSVG()) +
     '<div class="switch">' +
@@ -1666,8 +1748,14 @@ function scrPoint() {
     '<p class="meta" style="margin:3px 0 0">Доступно у платній версії</p></div></div>' +
     '<div class="rule"></div><div class="between"><span class="meta">Статус перевірено ' + dmy(p.upd) + '</span>' +
     '<button class="btn-sm" data-act="report">Повідомити про проблему</button></div>' +
-    (inJ ? '<button class="btn go" style="margin-top:16px" data-act="continue">Продовжити подорож</button>'
-      : '<button class="btn ghost" style="margin-top:16px" data-act="back-map">Назад до карти</button>') +
+    (inJ
+      ? '<button class="btn go" style="margin-top:16px" data-act="continue">Продовжити подорож</button>'
+      : onWay
+        ? '<button class="btn go" style="margin-top:16px" data-act="to-journey">Повернутись до подорожі</button>'
+        : '<button class="btn go" style="margin-top:16px" data-act="route-here">' +
+          'Прокласти маршрут сюди</button>') +
+    (inJ ? ''
+      : '<button class="btn ghost" style="margin-top:8px" data-act="back-map">Назад до карти</button>') +
     '</div>';
 }
 
@@ -1705,29 +1793,40 @@ function ratingBlock(p, vis, my) {
 }
 
 function scrFinish() {
-  const r = ROUTES.find(x => x.id === V.route), s = routeStats(r);
+  const r = R(), s = routeStats(r);
   const mins = Math.max(1, Math.round((Date.now() - V.t0) / 60000));
   const freshB = V.fresh || [];
   MOUNT = {
+    /* У поїздці до однієї точки трек малювати нема від чого: виїхали
+       ви з дому, а не з бази області, і вдавати інше не будемо. */
     points: flat(r).map(P),
-    legs: planDays(r).map(d => [P(r.from)].concat(d.filter(id => routable(P(id))).map(P), [P(r.from)]))
+    legs: r.solo ? []
+      : planDays(r).map(d => endLeg(r, [P(r.from)].concat(d.filter(id => inTrack(r, id)).map(P))))
   };
   return '<div style="text-align:center">' +
     '<div style="font-size:34px;margin:10px 0 4px;color:var(--verd-dk)">◆</div>' +
-    '<h2 style="font-size:22px">Вітаємо, ви завершили подорож</h2>' +
-    '<p class="lede" style="margin:8px 0 14px">' + esc(r.n) + ' · ' + SIZES[r.size].d + '</p>' +
+    '<h2 style="font-size:22px">' +
+    (r.solo ? 'Ви доїхали' : 'Вітаємо, ви завершили подорож') + '</h2>' +
+    '<p class="lede" style="margin:8px 0 14px">' + esc(r.n) + ' · ' +
+    (r.solo ? 'поїздка до однієї точки' : SIZES[r.size].d) + '</p>' +
     '<div id="lmap" class="lmap"></div>' +
     '<div class="grid3" style="margin:14px 0">' +
-    '<div class="stat"><b>' + s.stops + '</b><span>точок</span></div>' +
-    '<div class="stat"><b>' + s.km + '</b><span>км треку</span></div>' +
+    '<div class="stat"><b>' + s.stops + '</b><span>' +
+    plural(s.stops, 'точка', 'точки', 'точок') + '</span></div>' +
+    '<div class="stat"><b>' + s.km + '</b><span>км дороги</span></div>' +
     '<div class="stat"><b>' + hhmm(mins) + '</b><span>у подорожі</span></div></div>' +
     (freshB.length ? '<span class="eyebrow">Нові нагороди</span><div class="grid3" style="margin:9px 0 16px">' +
       freshB.map(id => {
         const b = BADGES.find(x => x.id === id);
         return '<div class="badge got"><div class="g">' + b.g + '</div><div class="n">' + b.n + '</div></div>';
       }).join('') + '</div>' : '') +
+    /* Поїздка до однієї точки не рахується маршрутом — і не вдає, що
+       рахується. Штамп і оцінка лишаються: людина справді там була. */
+    (r.solo ? '<p class="meta" style="margin:0 0 14px;line-height:1.45">Штамп і оцінка зараховані. ' +
+      'У «маршрути пройдено» поїздка до однієї точки не йде — маршруту не було.</p>' : '') +
     '<button class="btn" data-act="to-profile">До мандрівного листа</button>' +
-    '<button class="btn ghost" style="margin-top:8px" data-act="to-routes">Обрати новий маршрут</button></div>';
+    '<button class="btn ghost" style="margin-top:8px" data-act="to-routes">' +
+    (r.solo ? 'Обрати маршрут' : 'Обрати новий маршрут') + '</button></div>';
 }
 
 function scrProfile() {
@@ -1875,10 +1974,56 @@ function openPoint(id, from) {
 
 function openRoute(id) { V.route = id; go('route'); }
 
+/* Поїздка до однієї точки. Ставимо синтетичний маршрут — і далі все
+   йде тим самим шляхом, що й звичайна подорож. */
+function startSolo(pid) {
+  if (!P(pid)) return;
+  V.route = SOLO + pid;
+  startJourney();
+}
+
+/* Перед стартом є про що спитати — але тільки про те, що людина
+   справді має вирішувати сама:
+     · триває інша подорож, і вона перерветься;
+     · точка закрита, під окупацією або її статус протух.
+   Правило 3 існує, щоб не везти мовчки до зачинених дверей, а не щоб
+   забороняти свідоме рішення. Тому не «не можна», а «ось що відомо,
+   вирішуйте». Якщо питати нема про що — їдемо без зайвого кроку. */
+function routeHere(pid) {
+  const p = P(pid);
+  if (!p) return;
+  const why = [];
+
+  const cur = onTrip() ? R() : null;
+  if (cur && cur.id !== SOLO + pid) {
+    const now = P(flat(cur)[V.idx]);
+    why.push('Триває подорож' + (cur.solo ? '' : ' «' + cur.n + '»') + ', ведемо до «' +
+      now.n.split(',')[0] + '» — вона перерветься.');
+  }
+  if (p.st === 'occupied')
+    why.push('Точка на тимчасово окупованій території. Трек проляже, але дороги туди немає — ' +
+      'це не поїздка вихідного дня.');
+  else if (p.st === 'closed')
+    why.push('Точку позначено як зачинену: доїхати можна, потрапити всередину — навряд.');
+  if (expired(p))
+    why.push('Статус перевіряли ' + daysSince(p.upd) + ' днів тому, це більше за ' +
+      STATUS_STALE_DAYS + ' — вірити йому вже не варто.');
+
+  if (!why.length) return startSolo(pid);
+  sheet({
+    title: p.st === 'occupied' ? 'Це окупована територія' : 'Прокласти попри це?',
+    text: why.join(' '),
+    options: [{ label: 'Все одно прокласти', hint: 'доведемо до точки, доступ не гарантуємо' }],
+    cancel: 'Не треба',
+    onPick: () => { closeSheet(); startSolo(pid); }
+  });
+}
+
 function startJourney() {
-  const r = ROUTES.find(x => x.id === V.route);
+  const r = R();
+  if (!r) return;
   V.idx = 0; V.t0 = Date.now(); V.fresh = [];
-  V.road = false; V.follow = true;
+  V.road = false; V.follow = true; V.ended = false;
   Geo.start();
   /* Плану вистачає того, що є зараз: без фікса стартуємо від бази,
      а щойно GPS відгукнеться — перебудуємо, поки нікуди не поїхали. */
@@ -1891,7 +2036,7 @@ function startJourney() {
    порядок посеред дороги означало б водити людину колами. */
 function replanFromGps() {
   if (!V.route || !Geo.pos || V.idx !== 0) return false;
-  const r = ROUTES.find(x => x.id === V.route);
+  const r = R();
   if (!r || !V.plan || V.plan.byGps) return false;
   if (flat(r).some(id => S.visits[id] && S.visits[id].at >= V.t0)) return false;
   V.plan = buildPlan(r, Geo.pos, true);
@@ -2024,10 +2169,10 @@ function maybeReroute(force) {
   if (!V.road || !LMAP || !NAVLINE || !Geo.pos || NAVBUSY) return;
   if (!force && (!NAVFROM || distM(Geo.pos, NAVFROM) < 150)) return;
   if (!force && Date.now() - NAVAT < 15000) return;
-  const r = ROUTES.find(x => x.id === V.route);
+  const r = R();
   if (!r) return;
   NAVBUSY = true; NAVAT = Date.now();
-  const chain = [Geo.pos].concat(restOfDay(r), [P(r.from)]).map(LL);
+  const chain = endLeg(r, [Geo.pos].concat(restOfDay(r))).map(LL);
   const line = NAVLINE, map = LMAP;
   osrm(chain, true).then(route => {
     NAVBUSY = false;
@@ -2056,7 +2201,7 @@ function registerVisit(id, by) {
 }
 
 function arrive(by) {
-  const r = ROUTES.find(x => x.id === V.route);
+  const r = R();
   const id = flat(r)[V.idx];
   if (by === 'gps' && !Geo.atPoint(P(id))) {
     toast('Ще не на місці', 'Підійдіть ближче або підтвердіть вручну.');
@@ -2071,15 +2216,20 @@ function arrive(by) {
 }
 
 function continueJourney() {
-  const r = ROUTES.find(x => x.id === V.route);
+  const r = R();
   if (V.idx < flat(r).length - 1) {
     V.idx++;
     if (V.roadBack) { V.road = true; V.follow = true; V.roadBack = false; }
     go('journey');
   }
   else {
-    if (S.done.indexOf(r.id) < 0) S.done.push(r.id);
+    /* Поїздка до однієї точки не йде в «маршрути пройдено»: штамп
+       і оцінка — так, бо людина справді там була, а маршруту не було.
+       Інакше «Довга дорога» діставалась би за поїздку до сусідньої
+       церкви, і лічильник перестав би щось означати. */
+    if (!r.solo && S.done.indexOf(r.id) < 0) S.done.push(r.id);
     V.fresh = checkBadges();
+    V.ended = true;
     save();
     go('finish');
   }
@@ -2132,7 +2282,7 @@ function resetProgress() {
     cancel: 'Скасувати',
     onPick: () => {
       S = { v: 3, visits: {}, ratings: {}, done: [], badges: [], offline: [] };
-      V.route = null; V.idx = 0; V.fresh = [];
+      V.route = null; V.idx = 0; V.fresh = []; V.ended = false;
       Store.clear(); save();
       closeSheet();
       go('profile');
@@ -2176,7 +2326,7 @@ function latToY(lat, z) {
 }
 
 function tilesForRoute(r) {
-  const pts = flat(r).map(P).concat([P(r.from)]);
+  const pts = endLeg(r, flat(r).map(P));
   const pad = .06;
   const b = {
     y0: Math.min.apply(null, pts.map(p => p.lat)) - pad,
@@ -2198,7 +2348,7 @@ function tilesForRoute(r) {
 }
 
 async function downloadOffline() {
-  const r = ROUTES.find(x => x.id === V.route);
+  const r = R();
   const btn = document.querySelector('[data-act="offline"]');
   const prog = document.getElementById('prog');
   if (!navigator.serviceWorker || !navigator.serviceWorker.controller) {
@@ -2377,6 +2527,8 @@ function onTap(e) {
       if (m) m.remove();
       break;
     }
+    case 'route-here': routeHere(V.sel); break;
+    case 'to-journey': go('journey'); break;
     case 'back-map': go('map'); break;
     case 'to-profile': go('profile'); break;
     case 'to-routes': go('routes'); break;
@@ -2419,7 +2571,7 @@ function boot() {
          перебудовується під нього, поки подорож ще нікуди не зрушила. */
       if (replanFromGps()) { render(); return; }
 
-      const cur = P(flat(ROUTES.find(x => x.id === V.route))[V.idx]);
+      const cur = P(flat(R())[V.idx]);
       const here = Geo.atPoint(cur);
       /* Автоматичне прибуття: спека обіцяє, що картка відкриється сама. */
       if (here && !lastHere) { lastHere = true; arrive('gps'); return; }
