@@ -118,7 +118,7 @@ let MOUNT = null, LMAP = null, LEAFLET = null, MEMARK = null, MEACC = null, MOUN
 let MARKS = null, MOUNTCFG = null;
 /* Трек поточного відрізка і точка, з якої його прокладали:
    відійшов далеко — перекладаємо. */
-let NAVLINE = null, NAVFROM = null, NAVAT = 0, NAVBUSY = false;
+let NAVLINE = null, NAVFROM = null, NAVAT = 0, NAVBUSY = false, GUIDE = null;
 
 function save() { Store.write(S); }
 
@@ -585,14 +585,23 @@ async function mountMap() {
       ).addTo(map);
       bounds.extend(line.getBounds());
       if (cfg.nav && i === 0) { NAVLINE = line; NAVFROM = { lat: chain[0][0], lon: chain[0][1] }; }
-      roadRoute(chain).then(geo => {
-        if (geo && LMAP === map) {
-          line.setLatLngs(geo);
-          line.setStyle({ dashArray: null });
-          const n = document.getElementById('roadnote');
-          if (n) n.textContent = 'по дорогах · OSRM';
-        }
-      });
+      /* У дорожньому режимі просимо ще й маневри: увесь маршрут із
+         кроками рахуємо наперед, поки є звʼязок. У фоні Android душить
+         HTTP із WebView, тож перепитувати посеред дороги ненадійно. */
+      (cfg.nav && i === 0 ? osrm(chain, true).catch(() => null) : Promise.resolve(null))
+        .then(r => {
+          const geo = r ? r.geometry.coordinates.map(c => [c[1], c[0]]) : null;
+          if (cfg.nav && i === 0 && r) { GUIDE = buildGuide(r); guideTick(true); }
+          return geo || roadRoute(chain);
+        })
+        .then(geo => {
+          if (geo && LMAP === map) {
+            line.setLatLngs(geo);
+            line.setStyle({ dashArray: null });
+            const n = document.getElementById('roadnote');
+            if (n) n.textContent = 'по дорогах · OSRM';
+          }
+        });
     });
   }
 
@@ -747,15 +756,178 @@ function followMe() {
   setTimeout(() => { V.followAnim = false; }, 700);
 }
 
+async function osrm(chain, steps) {
+  const s = chain.map(c => c[1].toFixed(5) + ',' + c[0].toFixed(5)).join(';');
+  const r = await fetch('https://router.project-osrm.org/route/v1/driving/' + s +
+    '?overview=full&geometries=geojson' + (steps ? '&steps=true' : ''));
+  const j = await r.json();
+  return (j.routes && j.routes[0]) ? j.routes[0] : null;
+}
+
 async function roadRoute(chain) {
   try {
-    const s = chain.map(c => c[1].toFixed(5) + ',' + c[0].toFixed(5)).join(';');
-    const r = await fetch('https://router.project-osrm.org/route/v1/driving/' + s +
-      '?overview=full&geometries=geojson');
-    const j = await r.json();
-    if (j.routes && j.routes[0]) return j.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+    const r = await osrm(chain, false);
+    if (r) return r.geometry.coordinates.map(c => [c[1], c[0]]);
   } catch (e) { /* демо-сервер OSRM без SLA — тихо лишаємо пряму лінію */ }
   return null;
+}
+
+/* ═════════ ПОКРОКОВІ ПІДКАЗКИ ═════════
+   OSRM віддає маневри сам — треба лише перекласти їх людською мовою
+   і рахувати, скільки до наступного лишилось. Живого трафіку й обʼїздів
+   у нас немає і не буде: це не алгоритм, а мільйони телефонів, які
+   щосекунди шлють свою швидкість. Тому кнопка передачі в навігатор
+   нікуди не дівається — вона для затору, а не для дороги.        */
+
+const TURN = {
+  'sharp right': 'різко праворуч', 'right': 'праворуч', 'slight right': 'плавно праворуч',
+  'straight': 'прямо',
+  'slight left': 'плавно ліворуч', 'left': 'ліворуч', 'sharp left': 'різко ліворуч',
+  'uturn': 'розворот'
+};
+
+/* Текст маневру. Назву вулиці свідомо НЕ вставляємо в фразу:
+   «праворуч на вулиця Друга» — саме те, що виходить, бо відмінювати
+   назви автоматично чесно неможливо. Тому назва йде окремим рядком
+   на екрані й через кому в голосі — і граматика ні до чого. */
+function maneuverText(m) {
+  const t = m.type, mod = m.modifier, turn = TURN[mod] || '';
+  const cap = x => x ? x[0].toUpperCase() + x.slice(1) : '';
+  switch (t) {
+    case 'depart': return { s: 'Рушайте', v: 'Рушайте' };
+    case 'arrive': return { s: 'Прибуття', v: 'Ви на місці' };
+    case 'roundabout': case 'rotary': {
+      const ex = m.exit ? ', ' + m.exit + '-й зʼїзд' : '';
+      return { s: 'Кільце' + ex, v: 'Заїжджайте на кільце' + ex };
+    }
+    case 'exit roundabout': case 'exit rotary':
+      return { s: 'З кільця', v: 'Зʼїжджайте з кільця' };
+    case 'merge': return { s: 'Влийтесь ' + turn, v: 'Влийтесь у потік ' + turn };
+    case 'on ramp': return { s: 'На зʼїзд ' + turn, v: 'Виїжджайте на зʼїзд ' + turn };
+    case 'off ramp': return { s: 'Зʼїзд ' + turn, v: 'Зʼїжджайте ' + turn };
+    case 'fork': return { s: 'Тримайтесь ' + turn, v: 'На розвилці тримайтесь ' + turn };
+    case 'end of road': return { s: cap(turn), v: 'У кінці дороги ' + turn };
+    case 'new name': case 'continue':
+      return mod && mod !== 'straight'
+        ? { s: cap(turn), v: 'Продовжуйте ' + turn }
+        : { s: 'Прямо', v: 'Прямо' };
+    default:
+      if (mod === 'uturn') return { s: 'Розворот', v: 'Розверніться' };
+      return turn
+        ? { s: cap(turn), v: 'Поверніть ' + turn }
+        : { s: 'Прямо', v: 'Прямо' };
+  }
+}
+
+/* Розбираємо відповідь OSRM у плоский трек із розміткою кроків.
+   Плоский масив із накопиченими відстанями дозволяє одним пошуком
+   відповісти і «де я на треку», і «скільки до повороту». */
+function buildGuide(route) {
+  const pts = [], step = [], steps = [];
+  (route.legs || []).forEach(leg => (leg.steps || []).forEach(st => {
+    const g = (st.geometry && st.geometry.coordinates) || [];
+    const i0 = pts.length;
+    g.forEach(c => { pts.push([c[1], c[0]]); step.push(steps.length); });
+    const txt = maneuverText(st.maneuver || {});
+    const nm = st.name || '';
+    steps.push({ i0, i1: Math.max(i0, pts.length - 1), type: (st.maneuver || {}).type,
+      mod: (st.maneuver || {}).modifier, name: nm,
+      s: txt.s, v: txt.v + (nm ? ', ' + nm : '') });
+  }));
+  if (pts.length < 2) return null;
+
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++)
+    cum.push(cum[i - 1] + distM({ lat: pts[i - 1][0], lon: pts[i - 1][1] },
+      { lat: pts[i][0], lon: pts[i][1] }));
+  return { pts, step, steps, cum, spoken: {}, off: 0 };
+}
+
+/* Проєкція точки на відрізок у метрах. Плоске наближення: на масштабі
+   сотень метрів кривина Землі значення не має, а тригонометрії менше. */
+function toSeg(p, a, b) {
+  const k = Math.cos(p.lat * Math.PI / 180) * 111320, m = 110540;
+  const px = p.lon * k, py = p.lat * m;
+  const ax = a[1] * k, ay = a[0] * m, bx = b[1] * k, by = b[0] * m;
+  const dx = bx - ax, dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  let t = len2 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  const cx = ax + t * dx, cy = ay + t * dy;
+  return { d: Math.hypot(px - cx, py - cy), t };
+}
+
+/* Де ми на треку: найближчий відрізок, відхилення від лінії, скільки
+   лишилось до наступного маневру і до кінця. Саме відхилення від ЛІНІЇ,
+   а не від точки старту відрізка: раніше перерахунок спрацьовував,
+   щойно ви проїхали 150 метрів прямою дорогою. */
+function guideWhere(g, pos) {
+  let best = 0, bd = Infinity, bt = 0;
+  for (let i = 0; i < g.pts.length - 1; i++) {
+    const r = toSeg(pos, g.pts[i], g.pts[i + 1]);
+    if (r.d < bd) { bd = r.d; best = i; bt = r.t; }
+  }
+  const seg = g.cum[best + 1] - g.cum[best];
+  const along = g.cum[best] + seg * bt;
+  const si = g.step[best];
+  const toMan = Math.max(0, g.cum[g.steps[si].i1] - along);
+  return { off: bd, seg: best, along, step: si, toMan,
+           toEnd: Math.max(0, g.cum[g.cum.length - 1] - along) };
+}
+
+/* Коли озвучувати. Пороги залежать від швидкості: на трасі попередити
+   треба за кілометр, пішки за двадцять кроків. */
+function speakPoints(spd) {
+  if (spd == null || spd < 2.5) return [150, 40];
+  if (spd < 9) return [500, 180, 60];
+  if (spd < 18) return [900, 350, 100];
+  return [1600, 600, 150];
+}
+
+const Voice = {
+  on: true, ok: null,
+  /* Українського голосу може не бути — тоді мовчимо і не вдаємо,
+     що озвучили: підказка лишається на екрані великим шрифтом. */
+  pick() {
+    if (!('speechSynthesis' in window)) return null;
+    const vs = speechSynthesis.getVoices() || [];
+    return vs.find(v => /^uk/i.test(v.lang)) || null;
+  },
+  say(text) {
+    if (!this.on || !text || !('speechSynthesis' in window)) return false;
+    const v = this.pick();
+    if (!v) { this.ok = false; return false; }
+    try {
+      const u = new SpeechSynthesisUtterance(text);
+      u.voice = v; u.lang = v.lang; u.rate = 1.02;
+      speechSynthesis.cancel();
+      speechSynthesis.speak(u);
+      this.ok = true;
+      return true;
+    } catch (e) { this.ok = false; return false; }
+  }
+};
+
+/* Екран не має гаснути посеред повороту. */
+const Wake = {
+  lock: null,
+  async on() {
+    if (this.lock || !navigator.wakeLock) return;
+    try { this.lock = await navigator.wakeLock.request('screen'); }
+    catch (e) { this.lock = null; }
+  },
+  off() {
+    if (!this.lock) return;
+    try { this.lock.release(); } catch (e) {}
+    this.lock = null;
+  }
+};
+
+function fmtSpeak(m) {
+  if (m < 1000) return 'Через ' + Math.round(m / 10) * 10 + ' метрів ';
+  if (m < 3000) return 'Через ' + (m / 1000).toFixed(1).replace('.', ',') + ' кілометра ';
+  const k = Math.round(m / 1000);
+  return 'Через ' + k + ' ' + plural(k, 'кілометр', 'кілометри', 'кілометрів') + ' ';
 }
 
 /* Схема на випадок, коли онлайн-карта недоступна. */
@@ -1351,7 +1523,10 @@ function roadView(r, st, cur, d, chain) {
     '<span class="rarrow"><svg id="rarrow" viewBox="0 0 24 24" ' +
     'style="transform:rotate(' + brg + 'deg)"><path d="M12 20V4M12 4l-6 6M12 4l6 6"/></svg></span>' +
     '<span class="rhead"><span class="rdist" id="rdist">' + fmtM(m) + '</span>' +
-    '<span class="rname">' + esc(cur.n) + '</span></span>' +
+    /* Два рядки: що робити і куди врешті їдемо. Поки підказок немає
+       (їх ще рахує OSRM або немає звʼязку), у верхньому лишається
+       назва точки — краще, ніж порожньо. */
+    '<span class="rname" id="rturn">' + esc(cur.n) + '</span></span>' +
     '<button class="rclose" data-act="road-off" aria-label="Вийти з дорожнього режиму">' +
     '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>' +
     '<div class="rnext' + (Geo.state === 'live' ? '' : ' rwarn') + '" id="rnext">' +
@@ -1366,6 +1541,12 @@ function roadView(r, st, cur, d, chain) {
     '</button>' +
     '<span class="reta"><b id="reta">' + hhmm(mins) + '</b>' +
     '<span>' + Math.round(left) + ' км до кінця дня</span></span>' +
+    '<button class="rbtn round' + (Voice.on ? ' solid' : '') + '" data-act="voice" ' +
+    'aria-pressed="' + Voice.on + '" aria-label="Озвучення підказок">' +
+    (Voice.on
+      ? '<svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 8a5 5 0 010 8"/></svg>'
+      : '<svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 9l5 6M22 9l-5 6"/></svg>') +
+    '</button>' +
     '<button class="rbtn round" data-act="extnav" aria-label="Вести в навігаторі">' +
     '<svg viewBox="0 0 24 24"><path d="M12 2l9 20-9-5-9 5z"/></svg></button>' +
     '<button class="rbtn" data-act="overview">Огляд</button></div></div>';
@@ -1678,6 +1859,7 @@ function replanFromGps() {
 function roadMode(on) {
   V.road = on;
   V.follow = true;
+  if (on) Wake.on(); else { Wake.off(); GUIDE = null; try { speechSynthesis.cancel(); } catch (e) {} }
   render();
 }
 
@@ -1739,23 +1921,85 @@ function overview() {
   }
 }
 
+/* Один такт супроводу: де ми, що казати, чи не зійшли з треку.
+   Викликається на кожен фікс GPS у дорожньому режимі. */
+function guideTick(fresh) {
+  if (!V.road || !GUIDE || !Geo.pos) return null;
+  const w = guideWhere(GUIDE, Geo.pos);
+  const st = GUIDE.steps[w.step] || {};
+  const next = GUIDE.steps[w.step + 1];
+
+  /* Плашка. Показуємо маневр, а не просто напрямок на точку:
+     напрямок по прямій за кермом не допомагає. */
+  const d = document.getElementById('rdist');
+  if (d) d.textContent = fmtM(Math.round(w.toMan));
+  const target = next || st;
+  const t = document.getElementById('rturn');
+  if (t) t.textContent = (target.s || 'Прямо') + (target.name ? ' · ' + target.name : '');
+  const n = document.getElementById('rnext');
+  if (n && !n.classList.contains('rwarn')) {
+    const after = GUIDE.steps[w.step + 2];
+    n.innerHTML = after ? 'далі <b>' + esc(after.s) + '</b>'
+      : 'до кінця <b>' + fmtM(Math.round(w.toEnd)) + '</b>';
+  }
+
+  /* Голос. Кожен поріг — один раз на крок, інакше застосунок
+     торохтітиме те саме, поки ви стоїте на світлофорі. */
+  const key = w.step + 1;
+  if (!fresh && target) {
+    GUIDE.spoken[key] = GUIDE.spoken[key] || {};
+    const pts = speakPoints(Geo.pos.spd);
+    for (const p of pts) {
+      if (w.toMan <= p && !GUIDE.spoken[key][p]) {
+        GUIDE.spoken[key][p] = 1;
+        Voice.say((p === pts[pts.length - 1] ? '' : fmtSpeak(w.toMan)) + (target.v || ''));
+        break;
+      }
+    }
+  }
+
+  /* Схід із маршруту — за відхиленням від лінії, і не з першого фікса:
+     один поганий фікс у місті вибиває на 80 метрів. */
+  GUIDE.off = w.off > 55 ? GUIDE.off + 1 : 0;
+  if (GUIDE.off >= 3) { GUIDE.off = 0; offRoute(); }
+  return w;
+}
+
+/* Зійшли з треку. Поки є звʼязок — перекладаємо; немає — чесно
+   кажемо про це і лишаємо стрілку на точку. */
+function offRoute() {
+  const n = document.getElementById('rnext');
+  if (n) { n.classList.add('rwarn'); n.innerHTML = 'ви зійшли з маршруту <b>перекладаю</b>'; }
+  Voice.say('Ви зійшли з маршруту');
+  NAVAT = 0;                 /* дозволяємо негайний перерахунок */
+  maybeReroute(true);
+}
+
 /* Відхилення від треку. Перекладаємо не частіше ніж раз на 15 секунд
    і тільки коли справді відійшли — демо-сервер OSRM без гарантій,
    смикати його на кожен фікс не можна. */
-function maybeReroute() {
+function maybeReroute(force) {
   if (!V.road || !LMAP || !NAVLINE || !Geo.pos || NAVBUSY) return;
-  if (!NAVFROM || distM(Geo.pos, NAVFROM) < 150) return;
-  if (Date.now() - NAVAT < 15000) return;
+  if (!force && (!NAVFROM || distM(Geo.pos, NAVFROM) < 150)) return;
+  if (!force && Date.now() - NAVAT < 15000) return;
   const r = ROUTES.find(x => x.id === V.route);
   if (!r) return;
   NAVBUSY = true; NAVAT = Date.now();
   const chain = [Geo.pos].concat(restOfDay(r), [P(r.from)]).map(LL);
   const line = NAVLINE, map = LMAP;
-  roadRoute(chain).then(geo => {
+  osrm(chain, true).then(route => {
     NAVBUSY = false;
     if (LMAP !== map || NAVLINE !== line) return;
+    const geo = route ? route.geometry.coordinates.map(c => [c[1], c[0]]) : null;
+    if (route) { GUIDE = buildGuide(route); guideTick(true); }
     NAVFROM = { lat: Geo.pos.lat, lon: Geo.pos.lon };
     try { line.setLatLngs(geo || chain); line.setStyle({ dashArray: geo ? null : '10 8' }); } catch (e) {}
+    const n = document.getElementById('rnext');
+    if (n && !route) {
+      /* Без звʼязку перекласти нема як. Не вдаємо, що ведемо. */
+      n.classList.add('rwarn');
+      n.innerHTML = 'без звʼязку <b>стрілка вкаже напрямок на точку</b>';
+    } else if (n) n.classList.remove('rwarn');
   }, () => { NAVBUSY = false; });
 }
 
@@ -2068,6 +2312,12 @@ function onTap(e) {
     case 'road-on': roadMode(true); break;
     case 'road-off': roadMode(false); break;
     case 'follow': setFollow(!V.follow); followMe(); break;
+    case 'voice':
+      Voice.on = !Voice.on;
+      if (Voice.on && !Voice.say('Озвучення увімкнено'))
+        toast('Голосу немає', 'На цьому пристрої немає українського голосу — підказки лишаються на екрані.');
+      render();
+      break;
     case 'overview': overview(); break;
     case 'extnav': extNav(); break;
     case 'arrive-gps': arrive('gps'); break;
@@ -2102,6 +2352,10 @@ function boot() {
 
   document.addEventListener('click', onTap);
   document.addEventListener('input', onSearchInput);
+  /* Дозвіл не гасити екран губиться, щойно вкладку сховали. */
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && V.road) Wake.on();
+  });
 
   /* Кожен фікс GPS приходить раз на секунду-дві. Повний render()
      на кожен — це перебудова карти й миготіння, тому оновлюємо
@@ -2133,11 +2387,15 @@ function boot() {
       if (V.road) {
         /* Повний render() коштував би перебудови карти й миготіння
            на кожну секунду руху. Тому рухаємо камеру й оновлюємо
-           лише те, що змінилось: число і стрілку. */
+           лише те, що змінилось. */
         followMe();
-        maybeReroute();
-        const dEl = document.getElementById('rdist');
-        if (dEl) dEl.textContent = fmtM(Geo.metersTo(cur));
+        const w = guideTick(false);
+        if (!w) {
+          /* Підказок ще немає — лишаємось на напрямку по прямій. */
+          maybeReroute();
+          const dEl = document.getElementById('rdist');
+          if (dEl) dEl.textContent = fmtM(Geo.metersTo(cur));
+        }
         const aEl = document.getElementById('rarrow');
         if (aEl && Geo.pos)
           aEl.style.transform = 'rotate(' + Math.round(bearing(Geo.pos, cur)) + 'deg)';

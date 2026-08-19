@@ -523,6 +523,85 @@ const back = await evaluate(`return {
   : bad('після виходу екран не відновився: ' + JSON.stringify(back));
 await click('[data-act="abort"]');
 
+/* ── 10b. Покрокові підказки ─────────────────────────────────────── */
+/* OSRM у цьому середовищі недоступний, тож підсовуємо синтетичну
+   відповідь тієї самої форми: буква Г — 700 м на схід, поворот
+   праворуч, 1100 м на південь. Перевіряємо не мережу, а математику. */
+const guide = await evaluate(`
+  const seg = (a, b, n) => {
+    const out = [];
+    for (let i = 0; i <= n; i++)
+      out.push([a[0] + (b[0] - a[0]) * i / n, a[1] + (b[1] - a[1]) * i / n]);
+    return out;
+  };
+  const A = [30.500, 50.400], B = [30.510, 50.400], C = [30.510, 50.390];
+  const route = { legs: [{ steps: [
+    { name: 'вулиця Перша', maneuver: { type: 'depart', modifier: 'straight' },
+      geometry: { coordinates: seg(A, B, 20) } },
+    { name: 'вулиця Друга', maneuver: { type: 'turn', modifier: 'right' },
+      geometry: { coordinates: seg(B, C, 20) } },
+    { name: '', maneuver: { type: 'arrive' }, geometry: { coordinates: [C] } }
+  ] }] };
+  const g = buildGuide(route);
+  const at = (lat, lon) => guideWhere(g, { lat, lon });
+  return {
+    steps: g.steps.map(s => s.s),
+    voices: g.steps.map(s => s.v),
+    start: at(50.400, 30.500),
+    mid:   at(50.400, 30.505),
+    corner:at(50.400, 30.5099),
+    aside: at(50.402, 30.505),
+    total: Math.round(g.cum[g.cum.length - 1])
+  };
+`);
+Math.abs(guide.total - 1815) < 60
+  ? ok('довжина треку порахована: ' + guide.total + ' м')
+  : bad('довжина треку не сходиться: ' + guide.total);
+Math.abs(guide.start.toMan - 709) < 40 && guide.start.step === 0
+  ? ok('до першого маневру ' + Math.round(guide.start.toMan) + ' м')
+  : bad('відстань до маневру хибна: ' + JSON.stringify(guide.start));
+Math.abs(guide.mid.toMan - 355) < 40
+  ? ok('на середині відрізка лишається половина: ' + Math.round(guide.mid.toMan) + ' м')
+  : bad('на середині порахувало ' + Math.round(guide.mid.toMan));
+guide.corner.toMan < 60
+  ? ok('біля повороту відстань майже нульова')
+  : bad('біля повороту досі ' + Math.round(guide.corner.toMan));
+/* Головне: схід міряється від ЛІНІЇ, а не від точки старту. За 220 м
+   убік від прямої ми маємо бути «поза треком», а не «проїхали далеко». */
+Math.abs(guide.aside.off - 222) < 30 && guide.start.off < 5
+  ? ok('відхилення міряється від лінії треку: ' + Math.round(guide.aside.off) + ' м')
+  : bad('відхилення рахується не так: ' + JSON.stringify({ aside: guide.aside.off, start: guide.start.off }));
+/* Назва вулиці не мусить лізти в фразу — інакше виходить
+   «праворуч на вулиця Друга». На екрані вона окремо, у голосі через кому. */
+guide.steps[1] === 'Праворуч' && guide.voices[1] === 'Поверніть праворуч, вулиця Друга'
+  ? ok('маневри перекладені без ламаних відмінків: «' + guide.steps[1] + '» / «' + guide.voices[1] + '»')
+  : bad('маневр звучить не так: ' + JSON.stringify({ s: guide.steps[1], v: guide.voices[1] }));
+/^Ви на місці$/.test(guide.voices[2])
+  ? ok('прибуття озвучується окремо')
+  : bad('прибуття звучить як: ' + guide.voices[2]);
+
+/* Пороги озвучення мусять залежати від швидкості: пішки попереджати
+   за кілометр безглуздо, на трасі за сорок метрів — пізно. */
+const thresholds = await evaluate(`return {
+  walk: speakPoints(1), town: speakPoints(7), road: speakPoints(25), none: speakPoints(null)
+}`);
+thresholds.walk[0] < thresholds.town[0] && thresholds.town[0] < thresholds.road[0]
+  ? ok('пороги підказок ростуть зі швидкістю: ' + thresholds.walk[0] + ' / ' +
+      thresholds.town[0] + ' / ' + thresholds.road[0] + ' м')
+  : bad('пороги не залежать від швидкості: ' + JSON.stringify(thresholds));
+
+/* Голос може бути відсутній — застосунок мусить це визнавати,
+   а не вдавати, що озвучив. */
+const voice = await evaluate(`
+  const has = !!Voice.pick();
+  const said = Voice.say('перевірка');
+  return { has, said, honest: has === said };
+`);
+voice.honest
+  ? ok(voice.has ? 'український голос є, озвучення працює'
+                 : 'українського голосу немає — застосунок це визнає, а не вдає')
+  : bad('Voice.say бреше про результат: ' + JSON.stringify(voice));
+
 /* ── 11. Головний екран: карта і нижня шторка ────────────────────── */
 await click('[data-nav="map"]');
 await sleep(700);
