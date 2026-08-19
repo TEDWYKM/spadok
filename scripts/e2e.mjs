@@ -621,6 +621,79 @@ marks.themed === marks.themeHex
   ? ok('легенда показує всі пʼять типів')
   : bad('легенда неповна: ' + await count('.legend span'));
 
+/* Пошук за назвою: іконка в шапці, живий фільтр, порожній результат. */
+/* .sub малюється великими літерами через CSS, тому порівнюємо
+   без урахування регістру — інакше тест сперечався б зі стилем. */
+(await text('.bar .sub')).toLowerCase() === 'україни · mvp'
+  ? ok('підпис під назвою: ' + await text('.bar .sub'))
+  : bad('підпис не змінився: ' + await text('.bar .sub'));
+await click('[data-act="search-on"]');
+(await $('#q')) ? ok('пошук відкривається з шапки') : bad('поле пошуку не з’явилось');
+
+const typed = await evaluate(`
+  const el = document.getElementById('q');
+  el.value = 'олеськ';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  return null;
+`);
+await sleep(400);
+const found = await evaluate(`return {
+  ids: [...document.querySelectorAll('#mlist .card')].map(c => c.dataset.open),
+  snap: V.snap, focused: document.activeElement && document.activeElement.id
+}`);
+found.ids.length === 1 && found.ids[0] === 'olesko'
+  ? ok('пошук за назвою знаходить точку: ' + found.ids[0])
+  : bad('пошук знайшов не те: ' + JSON.stringify(found.ids));
+found.snap > 0 ? ok('шторка піднялась, щоб показати знайдене') : bad('шторка лишилась складеною');
+
+/* Шапка шторки мусить іти за пошуком: підсвічена вкладка і лічильники.
+   Спершу оновлювався тільки список, і над знайденими місцями світилося
+   «Маршрути · 9». */
+const headSync = await evaluate(`
+  const t = [...document.querySelectorAll('.mtabs button')];
+  return { pressed: t.find(b => b.getAttribute('aria-pressed') === 'true')?.dataset.tab,
+           label: t[0].innerText };
+`);
+headSync.pressed === 'places' && /·\s*1$/.test(headSync.label.trim())
+  ? ok('шапка шторки йде за пошуком: ' + headSync.label)
+  : bad('шапка відстала від пошуку: ' + JSON.stringify(headSync));
+
+/* Апостроф на телефоні набирається різними символами — усі мусять
+   знаходити те саме. */
+const apos = await evaluate(`
+  const el = document.getElementById('q');
+  const out = [];
+  for (const q of ['пам\u2019ятка', "пам'ятка"]) { V.q = q; out.push(POINTS.filter(hits).length); }
+  V.q = 'церква'; const churches = POINTS.filter(hits).length;
+  V.q = 'олеськ'; el.value = 'олеськ';
+  return { same: out[0] === out[1], churches };
+`);
+apos.same ? ok('різні апострофи шукають однаково') : bad('апостроф ламає пошук');
+apos.churches === 2 ? ok('частковий збіг знаходить обидві церкви') : bad('частковий збіг: ' + apos.churches);
+
+await evaluate(`
+  const el = document.getElementById('q');
+  el.value = 'абракадабра';
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  return null;
+`);
+await sleep(350);
+(await text('#mlist')).includes('нічого не знайшли')
+  ? ok('порожній результат пояснює себе')
+  : bad('порожній результат мовчить: ' + (await text('#mlist')).slice(0, 60));
+await shot('11-search');
+
+await click('[data-act="search-off"]');
+/* Пошук тимчасово перебиває вкладку на «Місця» — і мусить повернути
+   її як було. До цього місця тест лишив відкритою вкладку маршрутів. */
+const closed = await evaluate(`return {
+  field: !!document.getElementById('q'), q: V.q, tab: V.mapTab,
+  ids: [...document.querySelectorAll('#mlist .card')].length
+}`);
+!closed.field && closed.q === '' && closed.tab === 'routes' && closed.ids === 9
+  ? ok('закриття пошуку повертає вкладку, що була до нього')
+  : bad('після закриття пошуку щось лишилось: ' + JSON.stringify(closed));
+
 await shot('11-home');
 await click('[data-tab="places"]');
 

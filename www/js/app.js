@@ -105,12 +105,14 @@ let V = {
      plan — порядок точок саме цієї подорожі, перебудований під
      положення на старті; у даних маршрут лишається недоторканим. */
   road: false, roadBack: false, follow: true, followAnim: false, plan: null,
+  /* Пошук: q — сам запит, searching — чи розгорнуте поле в шапці. */
+  q: '', searching: false,
   /* Головний екран: яка вкладка у шторці, у якому вона положенні
      і чи вже ставили карту на позицію користувача. */
   mapTab: 'places', snap: 0, centered: false, listAt: null
 };
 let MOUNT = null, LMAP = null, LEAFLET = null, MEMARK = null, MEACC = null, MOUNTBOUNDS = null;
-let MARKS = null;
+let MARKS = null, MOUNTCFG = null;
 /* Трек поточного відрізка і точка, з якої його прокладали:
    відійшов далеко — перекладаємо. */
 let NAVLINE = null, NAVFROM = null, NAVAT = 0, NAVBUSY = false;
@@ -519,6 +521,7 @@ async function mountMap() {
     }
   });
 
+  MOUNTCFG = cfg;
   MARKS = L.layerGroup().addTo(map);
   drawMarks(map, cfg);
   /* Кластери живуть тільки на головній карті: на екрані маршруту
@@ -828,6 +831,30 @@ function bindSheet() {
   SHEET = { el, up };
 }
 
+/* Поле пошуку живе в шапці, яку перемальовує render(). Тому подію
+   ловимо делеговано на документі, а не вішаємо слухач на елемент,
+   що зникне при наступному перемальовуванні. */
+function onSearchInput(e) {
+  if (!e.target || e.target.id !== 'q') return;
+  V.q = e.target.value;
+  /* Оновлюємо список і шар позначок, але не чіпаємо ні карту, ні шапку:
+     повний render() забрав би фокус із поля просто посеред набору,
+     а перебудова карти скинула б вигляд на кожну літеру. */
+  refreshMapList();
+  if (LMAP && MOUNTCFG) {
+    MOUNTCFG.points = mapModel().places;
+    drawMarks(LMAP, MOUNTCFG);
+  }
+  /* Результати мають бути видні: складену шторку піднімаємо. */
+  if (V.snap === 0) applySnap(1, true);
+}
+
+function focusSearch() {
+  const el = document.getElementById('q');
+  if (!el) return;
+  try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
+}
+
 /* Тап по ручці перебирає положення — так само, як у системних
    шторках Android: не всі тягнуть, дехто просто тицяє. */
 function cycleSnap() {
@@ -1011,12 +1038,22 @@ function routeCard(r, from) {
       esc(P(near.id).n) + '</p>' : '') + '</div>';
 }
 
+/* Пошук за назвою. Порівнюємо в нижньому регістрі й без апострофів:
+   «пам'ятка» на телефоні набирається трьома різними символами, і всі
+   троє мусять знаходити те саме. */
+/* Символи задані кодами навмисно: сирі лапка й апостроф усередині
+   регулярного виразу збивають з пантелику простий аналізатор
+   у check.mjs, і той починає бачити код там, де рядок. */
+const norm = s => String(s).toLowerCase().replace(/[\u2019\u02bc\u0027\u0060]/g, '');
+const hits = p => !V.q.trim() || norm(p.n).includes(norm(V.q.trim()));
+
 function mapModel() {
   const from = distFrom();
   const live = Geo.state === 'live' && !!Geo.pos;
   const near = V.sort !== 'pop';
 
   const places = (V.theme === 'all' ? POINTS : POINTS.filter(p => p.t.indexOf(V.theme) > -1))
+    .filter(hits)
     .slice().sort((a, b) => near
       ? dist(from, a) - dist(from, b)
       /* Правило 2 доведене до інтерфейсу: у «найпопулярніших»
@@ -1032,14 +1069,20 @@ function mapModel() {
       ? (routeDist(a, from) - routeDist(b, from)) || (routeStats(a).km - routeStats(b).km)
       : routePop(b) - routePop(a));
 
-  const tab = V.mapTab === 'routes' ? 'routes' : 'places';
+  /* Шукають точки, тож на час пошуку вкладка маршрутів відступає. */
+  const tab = (V.q.trim() || V.mapTab !== 'routes') ? 'places' : 'routes';
   const notRec = !near ? places.filter(p => !recommended(p)) : [];
   return { from, live, near, places, routes, tab, notRec };
 }
 
-const mapListHTML = m => m.tab === 'places'
-  ? m.places.map(p => placeCard(p, m.from)).join('')
-  : m.routes.map(r => routeCard(r, m.from)).join('');
+const mapListHTML = m => {
+  if (m.tab === 'routes') return m.routes.map(r => routeCard(r, m.from)).join('');
+  if (m.places.length) return m.places.map(p => placeCard(p, m.from)).join('');
+  return '<p class="lede" style="margin:10px 2px">' + (V.q.trim()
+    ? 'За запитом «' + esc(V.q.trim()) + '» нічого не знайшли' +
+      (V.theme !== 'all' ? '. Можливо, заважає увімкнений фільтр теми.' : '.')
+    : 'Немає точок за цим фільтром.') + '</p>';
+};
 
 /* Відстані в списку живі, але перемальовувати весь екран на кожен фікс
    GPS означало б перебудовувати карту і скидати шторку. Тому міняємо
@@ -1049,42 +1092,48 @@ function refreshMapList() {
   if (!el || V.screen !== 'map') return;
   const m = mapModel();
   el.innerHTML = mapListHTML(m);
-  const eye = document.querySelector('.mhead .eyebrow');
-  if (eye) eye.textContent = m.near ? (m.live ? 'від вас' : 'від Львова') : 'найпопулярніші';
-  const note = document.getElementById('nosignal');
-  if (note && m.live) note.remove();
+  const head = document.querySelector('.mhead');
+  if (head) head.innerHTML = mapHead(m);
+}
+
+/* Шапка шторки будується окремо, бо її треба перемальовувати разом
+   зі списком: під час пошуку міняються і лічильники, і те, яка
+   вкладка підсвічена. Раніше оновлювався тільки список, і шторка
+   показувала «Маршрути · 9» над списком знайдених місць. */
+function mapHead(m) {
+  const dk = (V.road || V.tiles === 'dark') ? 'd' : 'l';
+  /* Легенда: колір без підпису — значення, доступне тільки тим, хто
+     його бачить. Під фільтром теми вона стискається в один рядок,
+     бо кольори там уже не про типи. */
+  const legend = V.theme !== 'all' && THEME_COLOR[V.theme]
+    ? '<div class="legend"><span style="--c:' + THEME_COLOR[V.theme][dk] + '"><i></i>' +
+      esc(THEMES[V.theme]) + '</span></div>'
+    : '<div class="legend">' + Object.keys(KIND_COLOR).map(k =>
+        '<span style="--c:' + KIND_COLOR[k][dk] + '"><i></i>' +
+        esc(KIND_COLOR[k].n) + '</span>').join('') + '</div>';
+
+  return legend +
+    '<div class="mtabs" role="group" aria-label="Що показувати">' +
+    '<button aria-pressed="' + (m.tab === 'places') + '" data-tab="places">Місця · ' +
+    m.places.length + '</button>' +
+    '<button aria-pressed="' + (m.tab === 'routes') + '" data-tab="routes">Маршрути · ' +
+    m.routes.length + '</button></div>' +
+    '<div class="between"><span class="eyebrow">' +
+    (m.near ? (m.live ? 'від вас' : 'від Львова') : 'найпопулярніші') + '</span>' +
+    '<button class="btn-sm" data-act="sort">' +
+    (m.near ? 'Найближчі' : 'Найпопулярніші') + ' ⇅</button></div>' +
+    (m.near && !m.live
+      ? '<p class="meta" id="nosignal" style="margin:8px 0 0;line-height:1.45">Сигналу ще немає, ' +
+        'тому відстані рахуються від Львова. З\u2019явиться — перерахуються.</p>'
+      : '') +
+    (m.notRec.length ? '<p class="meta" style="margin:8px 0 0;line-height:1.45">' +
+      pts(m.notRec.length) + ' нижче рекомендованих: ' + recWhy(m.notRec) + '.</p>' : '');
 }
 
 function scrMap() {
   const m = mapModel();
   const { from, live, near, places, routes, tab, notRec } = m;
   MOUNT = { points: places, full: true };
-
-  /* Легенда: колір без підпису — значення, доступне тільки тим, хто
-     його бачить. Під фільтром теми легенда стискається в один рядок,
-     бо кольори там уже не про типи. */
-  const legend = V.theme !== 'all' && THEME_COLOR[V.theme]
-    ? '<div class="legend"><span style="--c:' +
-      THEME_COLOR[V.theme][(V.road || V.tiles === 'dark') ? 'd' : 'l'] + '"><i></i>' +
-      esc(THEMES[V.theme]) + '</span></div>'
-    : '<div class="legend">' + Object.keys(KIND_COLOR).map(k =>
-        '<span style="--c:' + KIND_COLOR[k][(V.road || V.tiles === 'dark') ? 'd' : 'l'] + '">' +
-        '<i></i>' + esc(KIND_COLOR[k].n) + '</span>').join('') + '</div>';
-
-  const head = legend + '<div class="mtabs" role="group" aria-label="Що показувати">' +
-    '<button aria-pressed="' + (tab === 'places') + '" data-tab="places">Місця · ' + places.length + '</button>' +
-    '<button aria-pressed="' + (tab === 'routes') + '" data-tab="routes">Маршрути · ' + routes.length + '</button>' +
-    '</div>' +
-    '<div class="between"><span class="eyebrow">' +
-    (near ? (live ? 'від вас' : 'від Львова') : 'найпопулярніші') + '</span>' +
-    '<button class="btn-sm" data-act="sort">' +
-    (near ? 'Найближчі' : 'Найпопулярніші') + ' ⇅</button></div>' +
-    (near && !live
-      ? '<p class="meta" id="nosignal" style="margin:8px 0 0;line-height:1.45">Сигналу ще немає, ' +
-        'тому відстані рахуються від Львова. З\u2019явиться — перерахуються.</p>'
-      : '') +
-    (notRec.length ? '<p class="meta" style="margin:8px 0 0;line-height:1.45">' +
-      pts(notRec.length) + ' нижче рекомендованих: ' + recWhy(notRec) + '.</p>' : '');
 
   return '<div class="mapview">' +
     '<div id="lmap" class="lmap"></div>' +
@@ -1099,7 +1148,7 @@ function scrMap() {
     '<div class="msheet" id="msheet">' +
     '<div class="mgrab" data-act="grab" role="button" tabindex="0" ' +
     'aria-label="Перетягніть, щоб розгорнути список"><i></i></div>' +
-    '<div class="mhead">' + head + '</div>' +
+    '<div class="mhead">' + mapHead(m) + '</div>' +
     '<div class="mlist" id="mlist">' +
     mapListHTML(m) + '</div></div></div>';
 }
@@ -1809,7 +1858,7 @@ async function downloadOffline() {
 
 /* ═════════ РЕНДЕР ═════════ */
 const TITLES = {
-  map: ['Спадок', 'Львівщина · MVP'],
+  map: ['Спадок', 'України · MVP'],
   routes: ['Маршрути', 'короткі · середні · великі'],
   route: ['Маршрут', ''],
   journey: ['У дорозі', ''],
@@ -1833,11 +1882,27 @@ function render() {
     finish: null
   }[V.screen];
 
+  /* Пошук живе на головному екрані: шукають те, що на карті.
+     Розгорнутий, він займає місце заголовка — на 430 пікселях
+     тулити поле поруч із назвою нема куди. */
+  const searchable = V.screen === 'map';
   document.getElementById('bar').innerHTML =
     (back ? '<button class="back" data-back="' + back + '" aria-label="Назад">' +
       '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
       'stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>' : '') +
-    '<div><h1>' + T[0] + '</h1>' + (T[1] ? '<div class="sub">' + T[1] + '</div>' : '') + '</div>';
+    (searchable && V.searching
+      ? '<input class="qfield" id="q" type="search" autocomplete="off" ' +
+        'placeholder="Назва пам\u2019ятки" aria-label="Пошук пам\u2019яток за назвою" ' +
+        'value="' + esc(V.q) + '">' +
+        '<button class="barbtn" data-act="search-off" aria-label="Закрити пошук">' +
+        '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>'
+      : '<div><h1>' + T[0] + '</h1>' +
+        (T[1] ? '<div class="sub">' + T[1] + '</div>' : '') + '</div>' +
+        (searchable
+          ? '<button class="barbtn" data-act="search-on" aria-label="Пошук за назвою">' +
+            '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.2-4.2"/></svg>' +
+            (V.q ? '<b></b>' : '') + '</button>'
+          : ''));
 
   /* Дорожній режим існує тільки на екрані подорожі: пішов на інший
      екран — рамка, заголовок і навігація повертаються самі. */
@@ -1894,6 +1959,8 @@ function onTap(e) {
   switch (d.act) {
     case 'sort': V.sort = V.sort === 'pop' ? 'near' : 'pop'; render(); break;
     case 'grab': cycleSnap(); break;
+    case 'search-on': V.searching = true; render(); focusSearch(); break;
+    case 'search-off': V.searching = false; V.q = ''; render(); break;
     case 'locme':
       if (Geo.state !== 'live') Geo.start();
       if (Geo.pos && LMAP) centerOnMe(LMAP, 14);
@@ -1934,6 +2001,7 @@ function boot() {
   if (saved) S = Object.assign(S, saved);
 
   document.addEventListener('click', onTap);
+  document.addEventListener('input', onSearchInput);
 
   /* Кожен фікс GPS приходить раз на секунду-дві. Повний render()
      на кожен — це перебудова карти й миготіння, тому оновлюємо
