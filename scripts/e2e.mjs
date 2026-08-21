@@ -192,7 +192,12 @@ await sleep(700);
 (await count('.body .card')) === 17
   ? ok('17 точок у списку')
   : bad('точок у списку: ' + await count('.body .card'));
-(await $('.alert')) ? ok('банер тривоги на місці') : bad('немає банера тривоги');
+/* Безпекова плашка прибрана свідомо: застосунки сповіщень роблять це
+   краще й офіційно, а наша показувала демо-стан. Неправдиве «тривоги
+   немає» — не заглушка того ж роду, що намальоване фото. */
+!(await $('.over .alert'))
+  ? ok('стану тривоги на карті немає')
+  : bad('безпекова плашка повернулася на головний екран');
 (await count('.nav button')) === 4 ? ok('навігація з 4 розділів') : bad('навігація зламана');
 await shot('01-map');
 
@@ -860,13 +865,12 @@ await click('[data-tab="places"]');
 
 /* ── 11b. Області ────────────────────────────────────────────────── */
 /* Стаємо під Києвом — застосунок мусить сам перемкнутись на Київщину
-   і показати саме її точки, маршрути й банер тривоги. */
+   і показати саме її точки й маршрути. */
 await standAt(50.1139, 30.8657);   /* Витачів */
 await sleep(1200);
 const kyiv = await evaluate(`return {
   region: V.region,
   places: [...document.querySelectorAll('#mlist .card')].map(c => c.dataset.open),
-  alarm: document.querySelector('.over .alert')?.innerText || '',
   regsel: document.querySelector('.regsel')?.innerText.trim() || ''
 }`);
 kyiv.region === 'kyiv'
@@ -878,11 +882,6 @@ kyiv.places.length === 7 && kyiv.places.every(id => ['sofia','lavra','zoloti','a
 kyiv.places[0] === 'vytachiv'
   ? ok('найближчою стала точка, на якій ми стоїмо')
   : bad('найближча не та: ' + kyiv.places[0]);
-/* Банер тривоги — безпековий шар: він мусить називати ту область,
-   у якій ви є, інакше він гірший за відсутній. */
-kyiv.alarm.includes('Київській обл.')
-  ? ok('банер тривоги назвав Київську область')
-  : bad('банер лишився чужим: ' + kyiv.alarm.slice(0, 60));
 kyiv.regsel === 'Київщина' ? ok('перемикач показує Київщину') : bad('перемикач: ' + kyiv.regsel);
 
 await click('[data-tab="routes"]');
@@ -963,6 +962,14 @@ await click('[data-open="pidkamin"]');
 (await $('[data-act="route-here"]'))
   ? ok('у картці точки є кнопка маршруту до неї')
   : bad('немає кнопки «Прокласти маршрут сюди»');
+/* Замість стану тривоги — те, що справді стосується поїздки
+   і чого не скаже жоден застосунок сповіщень. */
+const hours = await evaluate(
+  `return document.body.innerText.includes('Графік роботи може змінитися')`);
+hours
+  ? ok('у картці памʼятки є нагадування про плаваючий графік')
+  : bad('нагадування про графік у картці немає');
+
 await click('[data-act="route-here"]');
 await sleep(450);
 

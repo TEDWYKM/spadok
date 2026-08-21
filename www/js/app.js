@@ -29,10 +29,23 @@ const CONFIG = {
   /* Кеш плиток: до яких зумів тягнемо і скільком плиткам ставимо межу. */
   offlineZoom: [8, 13],
   offlineTileCap: 700,
-  /* Реальне API тривог (потрібен токен за заявкою — див. docs/spec.md).
-     Поки null — показуємо демо-стан і чесно це підписуємо. */
-  alarmApi: null
 };
+
+/* Нагадування замість банера тривоги.
+
+   Банер був: смуга «Повітряна тривога у Львівській обл.: немає» поверх
+   карти. Прибраний свідомо, і не через складність. По-перше, майже
+   в кожного вже стоїть застосунок сповіщень, який робить це краще,
+   швидше й офіційно — дублювати його гірше, ніж не робити зовсім.
+   По-друге, наш банер показував демо-стан, а неправдиве «тривоги
+   немає» в застосунку, яким користуються в Україні, це не заглушка
+   того ж роду, що намальоване фото: людина може повірити.
+
+   Лишається те, що справді стосується подорожі й чого не скаже жоден
+   застосунок сповіщень: графіки роботи памʼяток плавають. */
+const HOURS_WARNING =
+  'Графік роботи може змінитися через повітряну небезпеку — ' +
+  'варто зателефонувати перед виїздом.';
 
 /* ═════════ ЗБЕРІГАННЯ ═════════
    Одна точка входу. localStorage у приватному режимі або в частині
@@ -1430,29 +1443,6 @@ function geoBar(target) {
     '</div>';
 }
 
-/* Банер тривоги. Реального API немає без токена, тому стан демонстраційний
-   і підписаний як демонстраційний. Місце під fetch залишено в Alarms.load(). */
-const Alarms = {
-  state: { active: false, at: Date.now() },
-  async load() {
-    if (!CONFIG.alarmApi) return;
-    try {
-      const r = await fetch(CONFIG.alarmApi);
-      const j = await r.json();
-      this.state = { active: !!(j && j.active), at: Date.now() };
-      render();
-    } catch (e) { /* лишаємо попередній стан */ }
-  },
-  banner() {
-    const a = this.state;
-    return '<div class="alert"><b>Повітряна тривога у ' + reg().alarm + ': ' +
-      (a.active ? 'Є. Прямуйте в укриття.' : 'немає.') + '</b><br>' +
-      'Станом на ' + stamp(a.at) + '. ' +
-      (CONFIG.alarmApi ? 'Джерело: офіційне API тривог.'
-        : 'Демо-стан: у робочій версії — офіційне API тривог за токеном.') + '</div>';
-  }
-};
-
 /* ═════════ ЕКРАНИ ═════════ */
 /* ── Головний екран ──────────────────────────────────────────────────
    Карта на весь екран, поверх неї стійка нижня шторка. Патерн узятий
@@ -1644,7 +1634,7 @@ function scrMap() {
 
   return '<div class="mapview">' +
     '<div id="lmap" class="lmap"></div>' +
-    '<div class="over">' + (V.swUpdate ? updBanner() : '') + Alarms.banner() +
+    '<div class="over">' + (V.swUpdate ? updBanner() : '') +
     '<div class="chips" role="group" aria-label="Тема">' +
     '<button class="chip" aria-pressed="' + (V.theme === 'all') + '" data-theme="all">Усі теми</button>' +
     Object.keys(THEMES).map(k => '<button class="chip" aria-pressed="' + (V.theme === k) +
@@ -1727,6 +1717,7 @@ function scrRoute() {
     (off ? 'Завантажено · доступно офлайн' : 'Завантажити для офлайну') + '</button>' +
     '<div class="prog" id="prog" hidden><i></i></div>' +
     '<button class="btn go" style="margin-top:10px" data-act="start">В подорож</button>' +
+    '<p class="meta" style="margin:12px 0 0;line-height:1.45">' + HOURS_WARNING + '</p>' +
     '<p class="meta" style="text-align:center;margin:10px 0 0">Статуси точок перевірено ' +
     dmy(flat(r).map(id => P(id).upd).sort()[0]) + '</p></div>';
 }
@@ -1909,7 +1900,9 @@ function scrPoint() {
     '<div class="locked" style="margin-top:12px"><span style="font-size:19px;opacity:.4">♪</span>' +
     '<div><b style="font-size:12.5px">Аудіорозповідь, 14 хв</b>' +
     '<p class="meta" style="margin:3px 0 0">Доступно у платній версії</p></div></div>' +
-    '<div class="rule"></div><div class="between"><span class="meta">Статус перевірено ' + dmy(p.upd) + '</span>' +
+    '<div class="rule"></div>' +
+    '<p class="meta" style="margin:0 0 10px;line-height:1.45">' + HOURS_WARNING + '</p>' +
+    '<div class="between"><span class="meta">Статус перевірено ' + dmy(p.upd) + '</span>' +
     '<button class="btn-sm" data-act="report">Повідомити про проблему</button></div>' +
     (inJ
       ? '<button class="btn go" style="margin-top:16px" data-act="continue">Продовжити подорож</button>'
@@ -3055,7 +3048,6 @@ function boot() {
     }
   });
 
-  Alarms.load();
   /* Головний екран — це карта на вашій позиції, тож дозвіл на місце
      просимо одразу, а не аж під час першої подорожі. Відмова нічого
      не ламає: відстані рахуються від Львова, і на екрані так і сказано. */
