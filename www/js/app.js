@@ -206,10 +206,20 @@ function uid() {
    Точка і маршрут належать області. Без цього список «від вас»
    пропонував би найближчу пам'ятку за 500 км, а маршрут із базою
    у Львові вів би через пів країни. */
-const REG = () => REGIONS[V.region] ? V.region : Object.keys(REGIONS)[0];
-const reg = () => REGIONS[REG()];
-const regPoints = () => POINTS.filter(p => p.reg === REG());
-const regRoutes = () => ROUTES.filter(r => r.reg === REG());
+/* «Уся Україна» — окремий режим, а не ще одна область. За замовчуванням
+   застосунок звужується до вашого регіону: інакше сортування «від вас»
+   пропонувало б найближчу памʼятку за пʼятсот кілометрів. Але побачити
+   все одразу треба вміти — і це свідомий вибір людини, а не стан,
+   у який можна впасти випадково. */
+const ALL = 'all';
+const isAll = () => V.region === ALL;
+const UA_CENTER = { lat: 49.0, lon: 31.2, n: 'центр України' };
+
+const REG = () => (V.region === ALL || REGIONS[V.region]) ? V.region : Object.keys(REGIONS)[0];
+const reg = () => isAll() ? { n: 'Уся Україна' } : REGIONS[REG()];
+const regPoints = () => isAll() ? POINTS.slice() : POINTS.filter(p => p.reg === REG());
+const regRoutes = () => isAll() ? ROUTES.slice() : ROUTES.filter(r => r.reg === REG());
+const regBadges = () => isAll() ? BADGES.slice() : BADGES.filter(b => !b.reg || b.reg === REG());
 
 /* Найближча область за прямою від центру. Груба міра, але для вибору
    між областями точнішої не треба. */
@@ -233,7 +243,7 @@ function autoRegion() {
 }
 
 function setRegion(k) {
-  if (!REGIONS[k] || k === V.region) return;
+  if ((k !== ALL && !REGIONS[k]) || k === V.region) return;
   V.region = k;
   S.region = k;          /* вибір руками фіксуємо назавжди */
   V.q = ''; V.searching = false;
@@ -1456,7 +1466,10 @@ const SNAPS = [0.30, 0.62, 0.92];
 
 /* Звідки міряємо відстані. Є сигнал — від вас; немає — від бази,
    і на екрані так і написано, щоб число не вводило в оману. */
-const distFrom = () => Geo.pos || P(reg().base);
+/* Без сигналу відстані рахуються від бази області. В режимі «вся
+   Україна» бази немає — беремо географічний центр країни, щоб
+   сортування хоч якось трималося, поки не прийде GPS. */
+const distFrom = () => Geo.pos || (isAll() ? UA_CENTER : P(reg().base));
 
 /* Відстань до маршруту — до найближчої його точки, а не до першої:
    маршрут може починатись далеко, а проходити поруч. */
@@ -1559,7 +1572,9 @@ const mapListHTML = m => {
   /* Пошук обмежений областю — і це створює пастку: людина шукає те,
      що в застосунку є, але в сусідній області, і бачить порожньо.
      Тому перевіряємо решту областей і пропонуємо перемкнутись. */
-  const elsewhere = Object.keys(REGIONS).filter(k =>
+  /* В режимі «вся Україна» пропонувати нема чого: якщо не знайшлося
+     тут, то не знайдеться ніде. */
+  const elsewhere = isAll() ? [] : Object.keys(REGIONS).filter(k =>
     k !== REG() && POINTS.some(p => p.reg === k && hits(p)));
   return '<p class="lede" style="margin:10px 2px">За запитом «' + esc(V.q.trim()) +
     '» нічого не знайшли' +
@@ -2165,9 +2180,10 @@ function cabStamps() {
 function cabBadges() {
   /* Чужі нагороди в кабінеті тільки дражнять: «Золота підкова» нічого
      не каже тому, хто ходить Київщиною. Загальні лишаються завжди. */
-  const shown = BADGES.filter(b => !b.reg || b.reg === REG());
+  const shown = regBadges();
   return '<p class="meta" style="margin:12px 0 10px">' + S.badges.length + ' з 50 задуманих. ' +
-    'Показано ' + shown.length + ' — загальні й ' + esc(reg().n) +
+    (isAll() ? 'Показано всі ' + shown.length
+             : 'Показано ' + shown.length + ' — загальні й ' + esc(reg().n)) +
     ', усього в цій версії ' + BADGES.length + '</p>' +
     '<div class="grid3">' + shown.map(b =>
       '<div class="badge ' + (S.badges.indexOf(b.id) > -1 ? 'got' : '') + '">' +
@@ -2384,16 +2400,27 @@ function roadMode(on) {
 /* Вибір області руками. Автовибір за GPS зручний, але людина може
    планувати поїздку туди, де її зараз немає, — і це нормальний сценарій. */
 function pickRegion() {
-  const keys = Object.keys(REGIONS);
+  /* Порожні регіони не ховаємо, а показуємо з нулем. Так видно
+     не лише те, що вже є, а й де контенту ще немає, — і список
+     перестає вдавати, що країна складається з двох регіонів. */
+  const keys = [ALL].concat(Object.keys(REGIONS));
   sheet({
-    title: 'Яку область показувати',
-    text: 'Область обирається сама за вашим положенням. Вибір руками її перекриває — і запамʼятовується.',
-    options: keys.map(k => ({
-      label: REGIONS[k].n,
-      hint: POINTS.filter(p => p.reg === k).length + ' точок · ' +
-        ROUTES.filter(r => r.reg === k).length + ' маршрутів' +
-        (k === REG() ? ' · показується' : '')
-    })),
+    title: 'Що показувати на карті',
+    text: 'Регіон обирається сам за вашим положенням. Вибір руками його перекриває — ' +
+      'і запамʼятовується.',
+    options: keys.map(k => {
+      const here = k === REG();
+      if (k === ALL) return {
+        label: 'Уся Україна',
+        hint: pts(POINTS.length) + ' · ' + rts(ROUTES.length) + (here ? ' · показується' : '')
+      };
+      const n = POINTS.filter(p => p.reg === k).length;
+      return {
+        label: REGIONS[k].n,
+        hint: (n ? pts(n) + ' · ' + rts(ROUTES.filter(r => r.reg === k).length)
+                 : 'поки порожньо') + (here ? ' · показується' : '')
+      };
+    }),
     onPick(_, i) { closeSheet(); setRegion(keys[i]); }
   });
 }
@@ -2969,7 +2996,7 @@ function boot() {
   if (saved) S = Object.assign(S, saved);
   /* Обрану руками область відновлюємо до першого рендера, інакше
      екран блимне чужою областю. */
-  if (S.region && REGIONS[S.region]) V.region = S.region;
+  if (S.region === ALL || (S.region && REGIONS[S.region])) V.region = S.region;
 
   document.addEventListener('click', onTap);
   document.addEventListener('input', onSearchInput);

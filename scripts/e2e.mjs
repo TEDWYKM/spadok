@@ -924,6 +924,67 @@ jumped.saved === 'lviv'
   : bad('вибір області не збережено: ' + jumped.saved);
 await click('[data-act="search-off"]');
 
+/* ── 11c. Уся Україна ────────────────────────────────────────────────
+   Звуження до регіону — розумний стан за замовчуванням, але не вʼязниця.
+   Побачити все одразу треба вміти; це свідомий вибір людини, а не стан,
+   у який можна впасти випадково. */
+await click('[data-nav="map"]');
+await click('[data-act="region"]');
+await sleep(320);
+const picker = await evaluate(`return {
+  opts: [...document.querySelectorAll('.sheet .opt b')].map(b => b.innerText),
+  hints: [...document.querySelectorAll('.sheet .opt span')].map(b => b.innerText)
+}`);
+picker.opts[0] === 'Уся Україна'
+  ? ok('«Уся Україна» першим пунктом у виборі')
+  : bad('немає режиму всієї країни: ' + JSON.stringify(picker.opts));
+picker.opts.length === 3
+  ? ok('плюс обидва регіони, разом ' + picker.opts.length)
+  : bad('пунктів у виборі: ' + picker.opts.length);
+/^24 точки/.test(picker.hints[0])
+  ? ok('підпис каже, скільки точок у режимі всієї країни')
+  : bad('підпис режиму: ' + picker.hints[0]);
+
+await click('[data-sheet="0"]');
+await sleep(700);
+const all = await evaluate(`return {
+  region: V.region, saved: S.region,
+  places: document.querySelectorAll('#mlist .card').length,
+  sel: (document.querySelector('.regsel') || {}).innerText.trim() || '',
+  legend: document.querySelectorAll('.legend span').length
+}`);
+all.region === 'all' && all.places === 24
+  ? ok('на карті всі 24 точки одразу')
+  : bad('режим усієї країни показує: ' + JSON.stringify(all));
+all.saved === 'all'
+  ? ok('вибір «уся Україна» переживе перезапуск')
+  : bad('режим не зберігся: ' + all.saved);
+/Уся Україна/.test(all.sel)
+  ? ok('перемикач показує режим прямо')
+  : bad('перемикач: ' + all.sel);
+
+await click('[data-tab="routes"]');
+await sleep(320);
+const allRoutes = await evaluate('return document.querySelectorAll(\'#mlist .card\').length');
+allRoutes === 13
+  ? ok('маршрути теж усі: 13')
+  : bad('маршрутів у режимі всієї країни: ' + allRoutes);
+
+await click('[data-nav="profile"]');
+await click('[data-cab="badges"]');
+await sleep(300);
+const allBadges = await evaluate('return document.querySelectorAll(\'.badge\').length');
+allBadges === 13
+  ? ok('нагороди показані всі, без звуження до регіону')
+  : bad('нагород видно: ' + allBadges);
+
+/* Повертаємось у регіон, щоб решта тесту йшла звичним сценарієм. */
+await click('[data-nav="map"]');
+await click('[data-act="region"]');
+await sleep(300);
+await click('[data-sheet="1"]');
+await sleep(500);
+
 /* ── 12. Шторки замість системних діалогів ───────────────────────── */
 await click('[data-nav="map"]');
 await click('[data-open="tustan"]');
