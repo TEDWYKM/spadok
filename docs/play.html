@@ -1,0 +1,369 @@
+<title>Спадок у Google Play</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700&family=Manrope:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+  :root{
+    --paper:#EDF0EA; --surface:#F7F8F5; --sunk:#E4E9E0;
+    --ink:#16211C; --muted:#5A6B62; --line:#D4DCD0;
+    --green:#1C5849; --green-soft:rgba(28,88,73,.10);
+    --amber:#A96C08; --amber-soft:rgba(169,108,8,.12);
+    --red:#9C2016; --red-soft:rgba(156,32,22,.10);
+    --shadow:0 1px 2px rgba(22,33,28,.05), 0 8px 24px -16px rgba(22,33,28,.28);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper:#111A16; --surface:#18221D; --sunk:#0C1310;
+      --ink:#E4EBE5; --muted:#8FA096; --line:#26332C;
+      --green:#6FBFA6; --green-soft:rgba(111,191,166,.13);
+      --amber:#D9A048; --amber-soft:rgba(217,160,72,.14);
+      --red:#E37E6D; --red-soft:rgba(227,126,109,.13);
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 10px 28px -18px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#111A16; --surface:#18221D; --sunk:#0C1310;
+    --ink:#E4EBE5; --muted:#8FA096; --line:#26332C;
+    --green:#6FBFA6; --green-soft:rgba(111,191,166,.13);
+    --amber:#D9A048; --amber-soft:rgba(217,160,72,.14);
+    --red:#E37E6D; --red-soft:rgba(227,126,109,.13);
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 10px 28px -18px rgba(0,0,0,.7);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    background:var(--paper); color:var(--ink);
+    font:400 16px/1.6 Manrope,"Segoe UI",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    padding:0 20px 96px;
+  }
+  .wrap{max-width:760px;margin:0 auto}
+
+  /* ── Шапка ─────────────────────────────────────────── */
+  header{padding:56px 0 0}
+  .eyebrow{
+    font:500 11px/1 "IBM Plex Mono",monospace;
+    letter-spacing:.16em;text-transform:uppercase;color:var(--muted);
+  }
+  h1{
+    font:700 clamp(30px,6vw,46px)/1.08 Unbounded,Manrope,sans-serif;
+    letter-spacing:-.02em;text-wrap:balance;margin:14px 0 0;
+  }
+  .lede{font-size:17px;color:var(--muted);margin:16px 0 0;max-width:62ch}
+
+  .clock{
+    display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;
+    margin:26px 0 0;padding:16px 18px;border-radius:14px;
+    background:var(--amber-soft);border:1px solid color-mix(in srgb,var(--amber) 32%,transparent);
+  }
+  .clock b{
+    font:700 21px/1 Unbounded,Manrope,sans-serif;color:var(--amber);
+    font-variant-numeric:tabular-nums;
+  }
+  .clock span{font-size:14px;color:var(--ink);opacity:.85}
+
+  /* ── Прогрес ───────────────────────────────────────── */
+  .meter{
+    position:sticky;top:0;z-index:5;margin:34px 0 0;
+    padding:12px 0 10px;background:var(--paper);
+    border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:14px;
+  }
+  .meter .bar{flex:1;height:6px;border-radius:99px;background:var(--sunk);overflow:hidden}
+  .meter .bar i{
+    display:block;height:100%;width:0;background:var(--green);
+    border-radius:99px;transition:width .3s ease;
+  }
+  .meter .num{
+    font:500 12px/1 "IBM Plex Mono",monospace;color:var(--muted);
+    font-variant-numeric:tabular-nums;white-space:nowrap;
+  }
+  .meter button{
+    font:500 12px/1 "IBM Plex Mono",monospace;color:var(--muted);
+    background:none;border:1px solid var(--line);border-radius:99px;
+    padding:6px 11px;cursor:pointer;
+  }
+  .meter button:hover{color:var(--ink);border-color:var(--muted)}
+
+  /* ── Секції ────────────────────────────────────────── */
+  section{margin:52px 0 0}
+  h2{
+    font:600 22px/1.2 Unbounded,Manrope,sans-serif;
+    letter-spacing:-.015em;margin:0;
+  }
+  .note{color:var(--muted);font-size:15px;margin:10px 0 0;max-width:62ch}
+  .stack{display:flex;flex-direction:column;gap:10px;margin:22px 0 0}
+
+  /* ── Пункт ─────────────────────────────────────────── */
+  .item{
+    display:grid;grid-template-columns:22px 1fr;gap:14px;
+    background:var(--surface);border:1px solid var(--line);
+    border-radius:14px;padding:16px 18px;box-shadow:var(--shadow);
+  }
+  .item.flat{box-shadow:none;background:transparent}
+  .item input{
+    appearance:none;-webkit-appearance:none;
+    width:20px;height:20px;margin:2px 0 0;border-radius:6px;
+    border:1.5px solid var(--muted);background:transparent;cursor:pointer;
+    display:grid;place-content:center;transition:background .15s,border-color .15s;
+  }
+  .item input:checked{background:var(--green);border-color:var(--green)}
+  .item input:checked::after{
+    content:"";width:10px;height:6px;margin-top:-2px;
+    border-left:2px solid var(--surface);border-bottom:2px solid var(--surface);
+    transform:rotate(-45deg);
+  }
+  .item input:focus-visible{outline:2px solid var(--green);outline-offset:3px}
+  .item.done .head b{opacity:.5;text-decoration:line-through}
+  .item.done .body{opacity:.55}
+
+  .head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+  .head b{font-weight:700;font-size:16px;line-height:1.35}
+  .body{font-size:14.5px;color:var(--muted);margin:8px 0 0}
+  .body strong{color:var(--ink);font-weight:600}
+  code{
+    font:400 13px/1 "IBM Plex Mono",monospace;
+    background:var(--sunk);padding:2px 5px;border-radius:5px;
+  }
+
+  .chip{
+    font:500 10.5px/1 "IBM Plex Mono",monospace;
+    letter-spacing:.09em;text-transform:uppercase;white-space:nowrap;
+    padding:5px 9px;border-radius:99px;flex:none;margin-top:2px;
+  }
+  .chip.me{background:var(--green-soft);color:var(--green)}
+  .chip.you{background:var(--amber-soft);color:var(--amber)}
+  .chip.risk{background:var(--red-soft);color:var(--red)}
+
+  .item.risk{border-left:3px solid var(--red)}
+  .ok{
+    display:grid;grid-template-columns:22px 1fr;gap:14px;
+    padding:11px 18px;font-size:14.5px;color:var(--muted);
+  }
+  .ok i{
+    width:20px;height:20px;border-radius:6px;background:var(--green-soft);
+    display:grid;place-content:center;color:var(--green);font-style:normal;
+    font-size:12px;font-weight:700;
+  }
+  .ok b{color:var(--ink);font-weight:600}
+
+  /* ── Порядок ───────────────────────────────────────── */
+  ol.path{list-style:none;padding:0;margin:22px 0 0;counter-reset:s}
+  ol.path li{
+    counter-increment:s;position:relative;padding:0 0 22px 46px;
+  }
+  ol.path li::before{
+    content:counter(s);position:absolute;left:0;top:0;
+    width:28px;height:28px;border-radius:99px;
+    background:var(--green);color:var(--paper);
+    font:600 13px/28px "IBM Plex Mono",monospace;text-align:center;
+  }
+  ol.path li::after{
+    content:"";position:absolute;left:13.5px;top:32px;bottom:2px;
+    width:1px;background:var(--line);
+  }
+  ol.path li:last-child{padding-bottom:0}
+  ol.path li:last-child::after{display:none}
+  ol.path b{display:block;font-size:15.5px;margin-bottom:4px}
+  ol.path span{font-size:14.5px;color:var(--muted)}
+
+  footer{
+    margin:64px 0 0;padding:20px 0 0;border-top:1px solid var(--line);
+    font:400 13px/1.6 "IBM Plex Mono",monospace;color:var(--muted);
+  }
+  footer a{color:var(--green)}
+
+  @media (prefers-reduced-motion: reduce){
+    *{transition:none !important;animation:none !important}
+  }
+  @media (max-width:520px){
+    header{padding-top:38px}
+    .head{flex-direction:column;gap:8px}
+    .chip{margin-top:0}
+  }
+</style>
+
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">Спадок · версія 0.5.0</div>
+  <h1>Що лишилось до Google&nbsp;Play</h1>
+  <p class="lede">Застосунок працює й збирається в APK. Магазин вимагає іншого: релізного підпису, свіжого targetSdk, формату AAB — і тижнів очікування, які не пришвидшити. Нижче — усе, що між сьогоднішнім станом і сторінкою в магазині.</p>
+  <div class="clock" id="clock">
+    <b id="days">—</b><span id="clocktext">рахую до 31 серпня 2026</span>
+  </div>
+</header>
+
+<div class="meter">
+  <span class="num" id="count">0 / 15</span>
+  <span class="bar"><i id="fill"></i></span>
+  <button type="button" id="reset">скинути</button>
+</div>
+
+<section>
+  <h2>Це вже зроблено</h2>
+  <p class="note">Не для галочки — просто щоб не робити двічі.</p>
+  <div class="stack" style="gap:0">
+    <div class="ok"><i>✓</i><div><b>Ідентифікатор і назва.</b> <code>ua.spadok.app</code>, «Спадок», адаптивна іконка під Android 8+.</div></div>
+    <div class="ok"><i>✓</i><div><b>Версії рахуються самі.</b> <code>versionName</code> з <code>package.json</code>, <code>versionCode</code> з номера збірки CI — Play не прийме повторний номер, а тут він росте завжди.</div></div>
+    <div class="ok"><i>✓</i><div><b>Дозволи мінімальні.</b> Інтернет і геолокація, GPS позначений як необов'язковий. Зайвого немає — це прямо зменшує питання на модерації.</div></div>
+    <div class="ok"><i>✓</i><div><b>Edge-to-edge не поламає екрани.</b> <code>viewport-fit=cover</code> і <code>env(safe-area-inset-*)</code> вже в CSS, а з Android&nbsp;15 системні панелі накладаються на вміст примусово.</div></div>
+    <div class="ok"><i>✓</i><div><b>Геолокація не покидає пристрій.</b> Це не дрібниця: за визначенням Google дані, які нікуди не передаються, не вважаються зібраними — і форма Data safety буде майже порожня.</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>Код і збірка</h2>
+  <p class="note">Це можу зробити я — крім ключа підпису, який маєте створити ви самі.</p>
+  <div class="stack" id="code"></div>
+</section>
+
+<section>
+  <h2>Акаунт і консоль</h2>
+  <p class="note">Тут я не помічник: усе робиться під вашим ім'ям і вашими документами. Два пункти мають власний годинник, тому починати варто з них.</p>
+  <div class="stack" id="console"></div>
+</section>
+
+<section>
+  <h2>Ризики модерації</h2>
+  <p class="note">Не формальності, а те, через що застосунок знімають або через що ним не можна користуватися. Перший пункт я вважаю найважливішим у всьому списку.</p>
+  <div class="stack" id="risk"></div>
+</section>
+
+<section>
+  <h2>З чого почати</h2>
+  <p class="note">Порядок тут важить: два найдовші кроки не залежать від коду й можуть іти паралельно з ним.</p>
+  <ol class="path">
+    <li><b>Відкрити акаунт розробника й подати документи</b><span>$25 і верифікація особи. Поки вона йде, застосунок нікуди не подати — але й нічого чекати склавши руки.</span></li>
+    <li><b>Зібрати 12 людей і запустити закрите тестування</b><span>Чотирнадцять днів рахуються від моменту, коли всі 12 підписані. Кожен день зволікання — день до релізу. Для цього потрібна перша релізна збірка, тож крок 3 має випередити цей.</span></li>
+    <li><b>Capacitor 8, підпис, AAB</b><span>Технічна частина. Реально — один-два вечори роботи, і вона розблоковує крок 2.</span></li>
+    <li><b>Банер тривоги й контент</b><span>Поки закритий тест іде своїм ходом, вирішити долю демо-даних. Це те, що визначає, чи є що показувати людям.</span></li>
+    <li><b>Лістинг і подача на продакшн</b><span>Скріншоти, описи, рейтинг, Data safety. Розгляд заявки — до семи днів.</span></li>
+  </ol>
+</section>
+
+<footer>
+  Складено 21.08.2026 за станом репозиторію на версії 0.5.0.<br>
+  Вимоги Google Play змінюються — перед подачею звіряйтеся з
+  <a href="https://support.google.com/googleplay/android-developer/answer/11926878">довідкою Play Console</a>.
+</footer>
+
+</div>
+
+<script>
+const ITEMS = {
+  code: [
+    ['targetSdk 36 — і це вже блокер, а не майбутній', 'me',
+     'Capacitor 6 дає targetSdk <strong>34</strong>. Play не приймає нові застосунки нижче 35 ще з минулого серпня, а з <strong>31 серпня 2026</strong> планка — 36. Тобто йти треба одразу на 36, тобто на <strong>Capacitor 8</strong>: compileSdk і targetSdk 36, minSdk 24, Gradle plugin 8.13.0, wrapper 8.14.3, Kotlin 2.2.20. Плюс дрібниці міграції — <code>density</code> у <code>configChanges</code> і перейменований <code>capacitor_bridge_layout_main.xml</code>. Найбільша технічна робота зі списку.'],
+    ['Ключ підпису — створюєте ви', 'you',
+     'Зараз збірка підписана debug-ключем, який Play не прийме. Потрібен власний keystore. <strong>Створити його й зберегти пароль маєте ви</strong> — я з ключами й паролями не працюю. Втрата цього ключа означає, що застосунок неможливо буде оновити: зберігайте копію окремо від комп’ютера.'],
+    ['Підпис у CI через GitHub Secrets', 'me',
+     'Коли ключ буде, я допишу <code>signingConfigs</code> у Gradle і навчу робочий процес брати ключ та паролі з секретів репозиторію. Самі секрети додаєте ви — у налаштуваннях GitHub, я їх не бачу.'],
+    ['AAB замість APK', 'me',
+     '<code>bundleRelease</code> замість <code>assembleDebug</code>. Play не приймає APK для нових застосунків із серпня 2021 — тільки Android App Bundle. APK у Releases лишиться для встановлення вручну, це зручно й нікому не заважає.'],
+    ['Вимкнути налагодження WebView', 'me',
+     'У <code>capacitor.config.json</code> стоїть <code>webContentsDebuggingEnabled: true</code>. У релізній збірці це відкриває вміст застосунку для інспектування з підключеного комп’ютера. Для debug лишити, для релізу — вимкнути.'],
+    ['Політика конфіденційності', 'me',
+     'Обов’язкова адреса, без неї не заповнити Data safety. Напишу чесний текст — застосунок читає місце тільки на пристрої, нічого не передає, прогрес живе локально — і покладу на ті самі GitHub Pages. Це десять хвилин роботи, але без неї далі не пройти.'],
+    ['Свій OSRM і свої плитки', 'me',
+     'Демо-сервер OSRM прямо заборонений для продакшену, а тайли OpenStreetMap мають ліміт використання, який застосунок у магазині перевищить. Поки це «відома межа» в README — у магазині це вже порушення чужих умов. Варіанти: власний інстанс OSRM або платний провайдер плиток.']
+  ],
+  console: [
+    ['Акаунт розробника й верифікація', 'you',
+     '$25 одноразово. Далі підтвердження особи: документ від держави для особистого акаунта; для організації — ще й номер <strong>D-U-N-S</strong> і документ організації. Пам’ятайте: ім’я та адреса з платіжного профілю показуються в магазині публічно. Якщо не хочете світити домашню адресу — це аргумент за акаунт організації.'],
+    ['12 тестувальників × 14 днів', 'you',
+     'Для особистих акаунтів, створених після 13 листопада 2023. Дванадцятеро мають бути підписані на закритий тест <strong>безперервно</strong> протягом 14 днів, і лише після цього можна подати заявку на продакшн. Заявку розглядають до семи днів. Це найдовший ланцюг у всьому списку — і єдиний, який не можна пришвидшити грошима чи роботою.'],
+    ['Форма Data safety', 'you',
+     'Хороша новина: Google рахує «збором» тільки те, що покидає пристрій. Геолокація в «Спадку» нікуди не передається, прогрес лежить у <code>localStorage</code> — отже, декларувати збір даних не треба. Політика конфіденційності все одно обов’язкова.'],
+    ['Віковий рейтинг', 'you',
+     'Анкета IARC у консолі. Для застосунку про історичні пам’ятки — кілька хвилин. Одне питання варте уваги: там є розділ про згадки насильства й воєнних подій, і відповідати треба чесно.'],
+    ['Матеріали лістингу', 'you',
+     'Іконка 512×512 PNG, банер 1024×500, від двох скріншотів 9:16 (1080×1920), назва до 30 символів, короткий опис до 80, повний до 4000. Скріншоти можу зняти з реального застосунку, тексти — накидати; вибір за вами.'],
+    ['Декларації в консолі', 'you',
+     'Цільова аудиторія, відсутність реклами, відсутність входу за паролем, країни розповсюдження, безкоштовність. Окремо — <strong>статус трейдера</strong> за європейським DSA, якщо застосунок буде доступний у ЄС.']
+  ],
+  risk: [
+    ['Банер тривоги показує вигаданий стан', 'risk',
+     'Це найсерйозніше в усьому списку, і не через модерацію. Застосунок для України, який показує неправдивий стан повітряної тривоги, — не косметична заглушка: людина може повірити. До публікації є рівно два варіанти — підключити справжнє API (потрібен токен за заявкою) або прибрати банер зовсім. Проміжного тут немає.'],
+    ['Фото й реконструкції — заглушки', 'risk',
+     'У Google є політика мінімальної функціональності: застосунки, які очевидно є демонстрацією, знімають. Двадцять чотири точки з намальованими SVG замість фотографій помітні одразу. Це збігається з тим, що в спеці й так названо головним ризиком проєкту — реальний контент.'],
+    ['Координати приблизні, а радіус 300 метрів', 'risk',
+     'Уся механіка продукту тримається на підтвердженні прибуття. Якщо координати зсунуті, люди не зможуть зарахувати відвідини — і застосунок не працюватиме саме в тому, заради чого існує. Виїзд у поле з плану (етап 0) перетворюється з наступного кроку на передумову публікації.']
+  ]
+};
+
+const KEY = 'spadok-play-v1';
+let state = {};
+try { state = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { state = {}; }
+
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* приватне вікно — просто не запам'ятаємо */ }
+}
+
+const LABEL = { me: 'роблю я', you: 'тільки ви', risk: 'ризик' };
+let total = 0;
+
+Object.keys(ITEMS).forEach(group => {
+  const host = document.getElementById(group);
+  ITEMS[group].forEach((it, i) => {
+    const id = group + ':' + i;
+    total++;
+    const row = document.createElement('label');
+    row.className = 'item' + (it[1] === 'risk' ? ' risk' : '') + (state[id] ? ' done' : '');
+    row.innerHTML =
+      '<input type="checkbox"' + (state[id] ? ' checked' : '') + '>' +
+      '<div><div class="head"><b>' + it[0] + '</b>' +
+      '<span class="chip ' + it[1] + '">' + LABEL[it[1]] + '</span></div>' +
+      '<div class="body">' + it[2] + '</div></div>';
+    const box = row.querySelector('input');
+    box.addEventListener('change', () => {
+      state[id] = box.checked;
+      row.classList.toggle('done', box.checked);
+      save(); meter();
+    });
+    host.appendChild(row);
+  });
+});
+
+function meter() {
+  const done = Object.keys(state).filter(k => state[k]).length;
+  document.getElementById('count').textContent = done + ' / ' + total;
+  document.getElementById('fill').style.width = (done / total * 100) + '%';
+}
+
+document.getElementById('reset').addEventListener('click', () => {
+  state = {}; save(); meter();
+  document.querySelectorAll('.item').forEach(r => {
+    r.classList.remove('done');
+    r.querySelector('input').checked = false;
+  });
+});
+
+meter();
+
+/* Дедлайн targetSdk 36. Рахуємо при відкритті, а не вписуємо числом:
+   документ переживе тиждень, а число ні. */
+(function () {
+  const due = new Date('2026-08-31T23:59:59Z');
+  const left = Math.ceil((due - new Date()) / 86400000);
+  const d = document.getElementById('days');
+  const t = document.getElementById('clocktext');
+  function plural(n, a, b, c) {
+    const x = n % 10, h = n % 100;
+    if (x === 1 && h !== 11) return a;
+    if (x >= 2 && x <= 4 && (h < 12 || h > 14)) return b;
+    return c;
+  }
+  if (left > 0) {
+    d.textContent = left;
+    t.textContent = plural(left, 'день', 'дні', 'днів') +
+      ' до 31 серпня, коли планка targetSdk для нових застосунків підніметься до 36. ' +
+      'Продовження до 1 листопада можна попросити в консолі.';
+  } else {
+    d.textContent = '36';
+    t.textContent = '— мінімальний targetSdk для нових застосунків. Термін 31 серпня 2026 минув, ' +
+      'нижчу збірку Play уже не прийме.';
+  }
+})();
+</script>

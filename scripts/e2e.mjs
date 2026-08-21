@@ -350,15 +350,19 @@ fin.badges.includes('horseshoe') && fin.badges.includes('route1')
 await shot('07-finish');
 
 /* ── 7. Профіль ──────────────────────────────────────────────────── */
+/* Штампи й нагороди живуть на своїх вкладках кабінету, тож перш ніж
+   їх рахувати, туди треба зайти. */
 await click('[data-nav="profile"]');
+await click('[data-cab="stamps"]');
 const prof = await evaluate(`return {
   stamps: document.querySelectorAll('.stamp').length,
-  got: document.querySelectorAll('.badge.got').length,
-  storage: document.body.innerText.includes('зберігається на пристрої'),
+  storage: document.body.innerText.includes('зберігається на цьому пристрої'),
   freshLine: document.body.innerText.includes('Свіжих перевірок статусу')
 }`);
+await click('[data-cab="badges"]');
+const got = await count('.badge.got');
 prof.stamps === 3 ? ok('3 штампи відвідин') : bad('штампів: ' + prof.stamps);
-prof.got >= 3 ? ok(prof.got + ' нагород отримано') : bad('нагород отримано: ' + prof.got);
+got >= 3 ? ok(got + ' нагород отримано') : bad('нагород отримано: ' + got);
 prof.storage ? ok('прогрес пишеться на пристрій') : bad('прогрес лише в пам’яті');
 prof.freshLine ? ok('видно стан свіжості перевірок статусів') : bad('немає блоку стану даних');
 await shot('08-profile');
@@ -1032,7 +1036,81 @@ forced.route === 'solo:pidhirtsi' && forced.target === 'pidhirtsi' && forced.leg
   : bad('після згоди трек не проклався: ' + JSON.stringify(forced));
 await evaluate(`P('pidhirtsi').st = 'warn'; return 1`);
 
-/* ── 15. Версія і кеші ───────────────────────────────────────────────
+/* ── 15. Кабінет ─────────────────────────────────────────────────────
+   Профіль і журнал подорожей. Найважливіша перевірка тут не про
+   інтерфейс, а про те, чого в записах НЕМА: жодних координат.
+   Спека, правило 6 — трек користувача це персональні дані, і різниця
+   між «був у точці такого дня» та журналом переміщень велика. */
+await click('[data-nav="profile"]');
+await click('[data-cab="trips"]');
+await sleep(300);
+
+const cab = await evaluate(`return {
+  tabs: document.querySelectorAll('[data-cab]').length,
+  name: (document.querySelector('.mename b') || {}).innerText || '',
+  since: document.body.innerText.includes('у Спадку з'),
+  trips: S.trips.length,
+  solo: S.trips.some(t => t.solo),
+  cards: document.querySelectorAll('.trips .card').length,
+  txt: (document.querySelector('.trips') || {}).innerText || '',
+  raw: JSON.stringify(S.trips)
+}`);
+cab.tabs === 3 ? ok('кабінет розділений на три вкладки') : bad('вкладок у кабінеті: ' + cab.tabs);
+cab.name === 'Мандрівник'
+  ? ok('без імені профіль підписано «Мандрівник»')
+  : bad('імʼя в шапці: ' + cab.name);
+cab.since ? ok('видно, відколи людина в Спадку') : bad('немає дати початку');
+cab.trips >= 2
+  ? ok(cab.trips + ' подорожі записались у журнал самі')
+  : bad('подорожей у журналі: ' + cab.trips);
+cab.cards === cab.trips
+  ? ok('усі записи показані на вкладці історії')
+  : bad('записів ' + cab.trips + ', карток ' + cab.cards);
+cab.solo && /одна точка/i.test(cab.txt)
+  ? ok('поїздка до однієї точки в журналі відрізняється від маршруту')
+  : bad('одноточкової поїздки в журналі не видно');
+!/lat|lon|"acc"/.test(cab.raw)
+  ? ok('у журналі немає жодних координат — правило 6')
+  : bad('у записі подорожі опинились координати', cab.raw.slice(0, 140));
+await shot('13-cabinet');
+
+await click('[data-act="me-edit"]');
+await sleep(350);
+(await $('.sform #mename')) ? ok('шторка профілю має поле імені') : bad('немає поля імені');
+(await count('.sigils .sig')) === 6
+  ? ok('шість знаків мандрівника на вибір')
+  : bad('знаків на вибір: ' + await count('.sigils .sig'));
+await evaluate(`document.getElementById('mename').value = 'Бандура'; return 1`);
+await click('[data-sigil="castle"]');
+await sleep(250);
+/* Вибір знака перемальовує шторку — набране імʼя мусить це пережити. */
+const kept = await evaluate(`return (document.getElementById('mename') || {}).value || ''`);
+kept === 'Бандура'
+  ? ok('вибір знака не стирає набране імʼя')
+  : bad('імʼя загубилось при виборі знака: ' + kept);
+await click('[data-sheet="0"]');
+await sleep(450);
+
+const me = await evaluate(`return {
+  name: S.me.name, mark: S.me.mark, id: !!S.me.id,
+  head: (document.querySelector('.mename b') || {}).innerText || '',
+  stored: ((JSON.parse(localStorage.getItem('spadok:lviv:v3') || '{}').me) || {}).name || '',
+  v: S.v
+}`);
+me.name === 'Бандура' && me.head === 'Бандура'
+  ? ok('імʼя збережено й одразу видно в шапці')
+  : bad('імʼя не збереглося: ' + JSON.stringify(me));
+me.mark === 'castle' ? ok('знак мандрівника збережено') : bad('знак: ' + me.mark);
+me.id
+  ? ok('у профілю є власний id — цього вистачить, щоб колись синхронізувати')
+  : bad('профіль без id — синхронізувати буде нічим');
+me.stored === 'Бандура'
+  ? ok('кабінет ліг на пристрій, а не лише в памʼять сторінки')
+  : bad('профіль не записався в сховище: «' + me.stored + '»');
+me.v === 4 ? ok('схема даних піднялась до v4') : bad('версія схеми: ' + me.v);
+await shot('13b-profile');
+
+/* ── 16. Версія і кеші ───────────────────────────────────────────────
    Найтихіший баг цього проєкту: оболонка оновилась, а пристрій цього
    не помітив, бо version у sw.js не мінялась. Перевіряємо весь ланцюг
    одразу — число в package.json, те саме число на екрані профілю
@@ -1067,7 +1145,7 @@ cacheNames.includes('spadok-tiles-' + shipped)
   ? bad('кеш плиток названий по версії застосунку — наступний реліз зітре викачану карту')
   : ok('кеш плиток не привʼязаний до версії застосунку');
 
-/* ── 16. Помилки в консолі ───────────────────────────────────────── */
+/* ── 17. Помилки в консолі ───────────────────────────────────────── */
 await sleep(300);
 errors.length === 0
   ? ok('консоль чиста')

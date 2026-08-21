@@ -39,6 +39,10 @@ const CONFIG = {
    WebView кидає виняток уже на записі — тому пробуємо і відступаємо
    в пам'ять, замість того щоб втратити прогрес без попередження. */
 const Store = (function () {
+  /* Рядок ключа лишається з часів v3 навмисно. Перейменувати його
+     означало б, що в кожного, хто вже користується застосунком,
+     прогрес одного дня просто зникне. Версія схеми живе всередині
+     даних — S.v, — і саме її піднімає upgrade(). */
   const KEY = 'spadok:lviv:v3';
   const LEGACY = 'spadok:lviv:v2';
   let backend = null, mem = null;
@@ -56,9 +60,9 @@ const Store = (function () {
     read() {
       try {
         const cur = raw(KEY);
-        if (cur) return JSON.parse(cur);
+        if (cur) return upgrade(JSON.parse(cur));
         const old = raw(LEGACY);
-        if (old) return migrate(JSON.parse(old));
+        if (old) return upgrade(migrate(JSON.parse(old)));
       } catch (e) { /* пошкоджені дані — починаємо з чистого стану */ }
       return null;
     },
@@ -93,9 +97,30 @@ const Store = (function () {
     out.badges = (old.badges || []).slice();
     return out;
   }
+
+  /* v3 → v4: зʼявився кабінет — профіль і історія подорожей.
+
+     Історію за минуле НЕ вигадуємо. Спокуса є: у штампів є час,
+     і згрупувати їх по днях виглядало б красиво. Але це були б
+     подорожі, яких застосунок не бачив, з вигаданими кілометрами.
+     Чесніше почати вести журнал із цього оновлення й сказати про це
+     на екрані — штампи за минуле нікуди не діваються. */
+  function upgrade(s) {
+    if (!s || s.v >= 4) return s;
+    s.v = 4;
+    s.me = null;      /* створиться при першому відкритті кабінету */
+    s.trips = [];
+    return s;
+  }
 })();
 
-let S = { v: 3, visits: {}, ratings: {}, done: [], badges: [], offline: [], region: null };
+/* Схема v4. me й trips — це вже дані акаунта: у них є власні id
+   і час, тож коли зʼявиться вхід на сервер, їх можна буде
+   синхронізувати, а не переписувати. */
+let S = {
+  v: 4, me: null, trips: [],
+  visits: {}, ratings: {}, done: [], badges: [], offline: [], region: null
+};
 let V = {
   screen: 'map', theme: 'all', sort: 'near', size: 'all',
   route: null, idx: 0, t0: 0, sel: null, from: 'map',
@@ -115,7 +140,11 @@ let V = {
   region: null,
   /* Головний екран: яка вкладка у шторці, у якому вона положенні
      і чи вже ставили карту на позицію користувача. */
-  mapTab: 'places', snap: 0, centered: false, listAt: null
+  mapTab: 'places', snap: 0, centered: false, listAt: null,
+  /* Кабінет: відкрита вкладка і чернетка профілю під час редагування.
+     Чернетка потрібна, бо шторка перемальовується на кожен вибір
+     знака — без неї набране імʼя губилося б. */
+  cab: 'trips', me: null
 };
 let MOUNT = null, LMAP = null, LEAFLET = null, MEMARK = null, MEACC = null, MOUNTBOUNDS = null;
 let MARKS = null, MOUNTCFG = null;
@@ -127,6 +156,14 @@ function save() { Store.write(S); }
 
 /* ═════════ УТИЛІТИ ═════════ */
 const P = id => POINTS.find(p => p.id === id);
+
+/* Ідентифікатор, який переживе синхронізацію. Поки все локальне, він
+   здається зайвим — але саме він дозволить колись злити два пристрої
+   без здогадок «це та сама подорож чи інша». */
+function uid() {
+  try { return crypto.randomUUID(); } catch (e) { /* старий WebView */ }
+  return 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+}
 
 /* ═════════ ОБЛАСТЬ ═════════
    Точка і маршрут належать області. Без цього список «від вас»
@@ -730,6 +767,81 @@ function avatarSVG(p) {
    це погляд, відірваний від дороги. */
 const AVATAR_ZOOM = 13;
 const avatarsAt = (zoom, nav) => !nav && zoom >= AVATAR_ZOOM;
+
+/* ═════════ КАБІНЕТ ═════════
+   Профіль і історія подорожей. Зберігається на пристрої, але формою
+   це вже акаунт: у профілю є id, у кожної подорожі — власний id і час.
+   Коли зʼявиться вхід на сервер, ці записи можна буде синхронізувати,
+   а не збирати наново.
+
+   Що навмисно НЕ зберігається: жодних координат і жодного треку.
+   Подорож — це «був у такій точці такого дня», а не журнал
+   переміщень. Спека, правило 6: у нашому контексті різниця між
+   цими двома речами може виявитись дуже великою.                  */
+
+/* Знак мандрівника замість фотографії. Фото довелося б десь тримати,
+   а знак — це вибір із того самого словника, яким намальована карта:
+   людина обирає, ким вона в цьому застосунку ходить. */
+const SIGILS = {
+  path:   { n: 'Шлях',    d: 'M12 1.4l2.7 6.9 6.9 2.7-6.9 2.7-2.7 6.9-2.7-6.9L2.4 11l6.9-2.7z' },
+  castle: { n: 'Замок',   d: KIND_GLYPH.castle },
+  ruin:   { n: 'Руїна',   d: KIND_GLYPH.ruin },
+  sacral: { n: 'Баня',    d: KIND_GLYPH.sacral },
+  city:   { n: 'Місто',   d: KIND_GLYPH.city },
+  rock:   { n: 'Скеля',   d: KIND_GLYPH.rock }
+};
+const sigilSVG = mark =>
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' +
+  (SIGILS[mark] || SIGILS.path).d + '"/></svg>';
+
+/* Профіль створюється не при першому запуску, а при першій потребі.
+   «У Спадку з» беремо від найдавнішого штампа: для того, хто ходить
+   давно, сьогоднішня дата була б неправдою. */
+function ensureMe() {
+  if (S.me && S.me.id) return S.me;
+  const first = Object.keys(S.visits).map(k => S.visits[k].at).sort((a, b) => a - b)[0];
+  S.me = { id: uid(), name: '', mark: 'path', since: first || Date.now() };
+  save();
+  return S.me;
+}
+const meName = () => (S.me && S.me.name) ? S.me.name : 'Мандрівник';
+
+/* ── Історія подорожей ───────────────────────────────────────────────
+   Штампи кажуть, де ви були. Історія — коли, чим і скільки це було:
+   одна поїздка чи триденний маршрут, які точки встигли, скільки
+   кілометрів. Раніше цього не було ніде: подорож закінчувалась —
+   і від неї лишались тільки окремі штампи. */
+const openTrip = () => S.trips.filter(t => !t.end)[0] || null;
+
+function tripStart(r) {
+  const prev = openTrip();
+  if (prev) {
+    /* Подорож, з якої нікуди не доїхали, історією не є — прибираємо.
+       А ту, де вже є штампи, чесно позначаємо перерваною. */
+    if (!prev.pts.length) S.trips.splice(S.trips.indexOf(prev), 1);
+    else { prev.end = Date.now(); prev.cut = true; }
+  }
+  S.trips.push({
+    id: uid(), at: Date.now(), end: 0,
+    route: r.id, solo: !!r.solo, reg: r.reg,
+    n: r.solo ? P(flat(r)[0]).n : r.n,
+    pts: [], km: 0
+  });
+  save();
+}
+
+function tripVisit(id) {
+  const t = openTrip();
+  if (t && t.pts.indexOf(id) < 0) { t.pts.push(id); save(); }
+}
+
+function tripEnd(km) {
+  const t = openTrip();
+  if (!t) return;
+  t.end = Date.now();
+  t.km = km;
+  save();
+}
 
 /* Скупчення розводимо по сітці в ПІКСЕЛЯХ поточного зуму, а не в
    градусах: на карті злипаються ті точки, що близькі на екрані,
@@ -1829,45 +1941,41 @@ function scrFinish() {
     (r.solo ? 'Обрати маршрут' : 'Обрати новий маршрут') + '</button></div>';
 }
 
+/* ═════════ ЕКРАН КАБІНЕТУ ═════════
+   Мандрівний лист: хто ви в цьому застосунку, куди їздили, що зібрали.
+   Розділено вкладками не для краси — усе разом уже не читалося:
+   історія росте з кожною поїздкою, штампів двадцять чотири,
+   нагород тринадцять, і внизу ще стан даних. */
 function scrProfile() {
-  const vis = Object.keys(S.visits).map(k => [k, S.visits[k]]).sort((a, b) => b[1].at - a[1].at);
+  const me = ensureMe();
+  const vis = Object.keys(S.visits);
   const rated = Object.keys(S.ratings).length;
-  const byGps = vis.filter(v => v[1].by === 'gps').length;
-  /* Чужі нагороди в профілі тільки дражнять: «Золота підкова» нічого
-     не каже тому, хто ходить Київщиною. Загальні лишаються завжди. */
-  const shown = BADGES.filter(b => !b.reg || b.reg === REG());
   const stale = POINTS.filter(p => !fresh(p) && !expired(p)).length;
   const gone = POINTS.filter(p => expired(p)).length;
   const oldest = POINTS.map(p => p.upd).sort()[0];
+  const walked = S.trips.filter(t => t.end && !t.cut).length;
+  const tabs = [['trips', 'Історія'], ['stamps', 'Штампи'], ['badges', 'Нагороди']];
+  const body = { trips: cabTrips, stamps: cabStamps, badges: cabBadges };
 
-  return '<div><div class="grid3" style="margin-bottom:16px">' +
+  return '<div>' +
+    '<div class="mehead">' +
+    '<button class="meav" data-act="me-edit" aria-label="Змінити знак і імʼя">' +
+    sigilSVG(me.mark) + '</button>' +
+    '<div class="mename"><b>' + esc(meName()) + '</b>' +
+    '<span class="meta">у Спадку з ' + dmy(me.since) + '</span></div>' +
+    '<button class="btn-sm" data-act="me-edit">Змінити</button></div>' +
+
+    '<div class="grid3" style="margin:16px 0">' +
     '<div class="stat"><b>' + vis.length + ' / ' + POINTS.length + '</b><span>точок</span></div>' +
-    '<div class="stat"><b>' + S.done.length + '</b><span>маршрутів</span></div>' +
+    '<div class="stat"><b>' + walked + '</b><span>подорожей</span></div>' +
     '<div class="stat"><b>' + rated + '</b><span>оцінок</span></div></div>' +
-    '<span class="eyebrow">Нагороди · ' + S.badges.length + ' / 50</span>' +
-    '<p class="meta" style="margin:5px 0 10px">Показано ' + shown.length + ' — загальні й ' +
-    esc(reg().n) + '. Усього в цій версії ' + BADGES.length + '</p>' +
-    '<div class="grid3" style="margin-bottom:18px">' + shown.map(b =>
-      '<div class="badge ' + (S.badges.indexOf(b.id) > -1 ? 'got' : '') + '">' +
-      '<div class="g">' + b.g + '</div><div class="n">' + b.n + '</div>' +
-      '<div class="d">' + b.d + '</div></div>').join('') + '</div>' +
-    '<span class="eyebrow">Штампи відвідин</span>' +
-    (vis.length
-      ? '<p class="meta" style="margin:5px 0 0">' + byGps + ' підтверджено по GPS, ' +
-        (vis.length - byGps) + ' вручну</p><div style="margin-top:10px">' +
-        vis.map(v => {
-          const p = P(v[0]), my = S.ratings[v[0]];
-          return '<div class="card" data-open="' + v[0] + '"><div class="between">' +
-            '<b style="font-size:13.5px">' + esc(p.n) + '</b>' +
-            (my ? '<div class="row">' + stars(my.stars, 'sm') + '</div>'
-              : '<span class="meta">без оцінки</span>') + '</div>' +
-            '<div style="margin-top:9px"><span class="stamp' + (v[1].by === 'manual' ? ' manual' : '') +
-            '">' + stamp(v[1].at) + ' · ' + (v[1].by === 'gps' ? 'GPS' : 'вручну') + '</span></div>' +
-            (my && my.text ? '<p class="lede" style="margin:9px 0 0;font-size:12.5px">«' +
-              esc(my.text) + '»</p>' : '') + '</div>';
-        }).join('') + '</div>'
-      : '<p class="lede" style="margin-top:8px">Порожньо. Оберіть маршрут — і перший штамп ' +
-        'з’явиться тут.</p>') +
+
+    '<div class="cabtabs" role="tablist">' + tabs.map(t =>
+      '<button role="tab" aria-selected="' + (V.cab === t[0]) + '" data-cab="' + t[0] + '">' +
+      t[1] + '</button>').join('') + '</div>' +
+
+    (body[V.cab] || cabTrips)() +
+
     '<div class="rule"></div><span class="eyebrow">Стан даних</span>' +
     '<div class="card" style="margin-top:9px"><div class="between"><span class="meta">' +
     'Свіжих перевірок статусу</span><b style="font-size:13.5px">' + (POINTS.length - stale - gone) +
@@ -1879,14 +1987,130 @@ function scrProfile() {
     '<p class="meta" style="margin:7px 0 0;line-height:1.45">Найдавніша перевірка — ' + dmy(oldest) +
     '. Свіжою вважається молодша за ' + STATUS_FRESH_DAYS + ' днів, ' +
     'протухлою — старша за ' + STATUS_STALE_DAYS + '.</p>' +
-    '<p class="meta" style="margin:5px 0 0">Прогрес: ' +
-    (Store.kind === 'local' ? 'зберігається на пристрої' : 'лише в пам’яті сесії') + '</p></div>' +
+    /* Де саме лежить кабінет — не технічна дрібниця. Людина має знати,
+       що її історія живе на цьому телефоні й більше ніде. */
+    '<p class="meta" style="margin:7px 0 0;line-height:1.45">Кабінет ' +
+    (Store.kind === 'local' ? 'зберігається на цьому пристрої' : 'живе лише в памʼяті сесії') +
+    '. Нічого не передається на сервер — його поки просто немає.</p></div>' +
     '<button class="btn-sm" style="width:100%;margin-top:10px" data-act="reset">Очистити прогрес</button>' +
     /* Версія тут не для краси: коли людина каже «я не бачу змін»,
        це перше, що треба спитати, — і воно має бути на екрані,
        а не в здогадках. Це ж число і в назві кешу оболонки. */
     '<p class="meta" style="text-align:center;margin:14px 0 0">Спадок · версія ' +
     APP_VERSION + '</p></div>';
+}
+
+/* ── Історія подорожей ─────────────────────────────────────────────── */
+function cabTrips() {
+  const list = S.trips.slice().sort((a, b) => b.at - a.at);
+  if (!list.length)
+    return '<p class="lede" style="margin:14px 0 0">' +
+      (S.done.length || Object.keys(S.visits).length
+        ? 'Журнал подорожей зʼявився пізніше за ваші перші поїздки, тому їх у ньому немає: ' +
+          'дописати їх заднім числом означало б вигадати кілометри й час, яких застосунок ' +
+          'не бачив. Штампи за них нікуди не поділись — вони на сусідній вкладці.'
+        : 'Порожньо. Щойно ви вирушите в дорогу, поїздка запишеться сюди сама: коли, куди, ' +
+          'скільки кілометрів і що встигли побачити.') + '</p>';
+
+  return '<div class="trips">' + list.map(t => {
+    const mins = t.end ? Math.max(1, Math.round((t.end - t.at) / 60000)) : 0;
+    const seen = t.pts.map(P).filter(Boolean);
+    return '<div class="card"><div class="between">' +
+      '<b style="font-size:13.5px">' + esc(t.n) + '</b>' +
+      '<span class="meta">' + dmy(t.at) + '</span></div>' +
+      '<div class="row" style="gap:9px;flex-wrap:wrap;margin-top:9px">' +
+      '<span class="tag ' + (t.solo ? 'solo' : 'size') + '">' +
+      (t.solo ? 'одна точка' : 'маршрут') + '</span>' +
+      (!t.end ? '<span class="tag ok">триває</span>' : '') +
+      (t.cut ? '<span class="tag warn">перервана</span>' : '') +
+      /* Числа збираємо в один рядок із роздільниками: три окремі
+         «мета» поспіль зливалися в суцільний текст. */
+      '<span class="meta">' + [
+        t.km ? t.km + ' км' : '',
+        mins ? hhmm(mins) + ' у дорозі' : '',
+        pts(seen.length)
+      ].filter(Boolean).join(' · ') + '</span></div>' +
+      (seen.length
+        ? '<div class="row" style="gap:6px;flex-wrap:wrap;margin-top:10px">' +
+          seen.map(p => '<span class="pchip" data-open="' + p.id + '">' +
+            esc(p.n.split(',')[0]) + '</span>').join('') + '</div>'
+        : '') + '</div>';
+  }).join('') + '</div>';
+}
+
+/* ── Штампи відвідин ───────────────────────────────────────────────── */
+function cabStamps() {
+  const vis = Object.keys(S.visits).map(k => [k, S.visits[k]]).sort((a, b) => b[1].at - a[1].at);
+  if (!vis.length)
+    return '<p class="lede" style="margin:14px 0 0">Порожньо. Оберіть маршрут або точку — ' +
+      'і перший штамп зʼявиться тут.</p>';
+  const byGps = vis.filter(v => v[1].by === 'gps').length;
+
+  return '<p class="meta" style="margin:12px 0 0">' + byGps + ' підтверджено по GPS, ' +
+    (vis.length - byGps) + ' вручну</p><div style="margin-top:10px">' +
+    vis.map(v => {
+      const p = P(v[0]), my = S.ratings[v[0]];
+      return '<div class="card" data-open="' + v[0] + '"><div class="between">' +
+        '<b style="font-size:13.5px">' + esc(p.n) + '</b>' +
+        (my ? '<div class="row">' + stars(my.stars, 'sm') + '</div>'
+          : '<span class="meta">без оцінки</span>') + '</div>' +
+        '<div style="margin-top:9px"><span class="stamp' + (v[1].by === 'manual' ? ' manual' : '') +
+        '">' + stamp(v[1].at) + ' · ' + (v[1].by === 'gps' ? 'GPS' : 'вручну') + '</span></div>' +
+        (my && my.text ? '<p class="lede" style="margin:9px 0 0;font-size:12.5px">«' +
+          esc(my.text) + '»</p>' : '') + '</div>';
+    }).join('') + '</div>';
+}
+
+/* ── Нагороди ──────────────────────────────────────────────────────── */
+function cabBadges() {
+  /* Чужі нагороди в кабінеті тільки дражнять: «Золота підкова» нічого
+     не каже тому, хто ходить Київщиною. Загальні лишаються завжди. */
+  const shown = BADGES.filter(b => !b.reg || b.reg === REG());
+  return '<p class="meta" style="margin:12px 0 10px">' + S.badges.length + ' з 50 задуманих. ' +
+    'Показано ' + shown.length + ' — загальні й ' + esc(reg().n) +
+    ', усього в цій версії ' + BADGES.length + '</p>' +
+    '<div class="grid3">' + shown.map(b =>
+      '<div class="badge ' + (S.badges.indexOf(b.id) > -1 ? 'got' : '') + '">' +
+      '<div class="g">' + b.g + '</div><div class="n">' + b.n + '</div>' +
+      '<div class="d">' + b.d + '</div></div>').join('') + '</div>';
+}
+
+/* ── Редагування профілю ───────────────────────────────────────────── */
+/* Чернетка живе у V, а не в S: шторка перемальовується на кожен вибір
+   знака, і без чернетки набране імʼя губилося б на першому ж тапі. */
+function editMe() {
+  const me = ensureMe();
+  V.me = { name: me.name, mark: me.mark };
+  sheet({
+    title: 'Ваш профіль',
+    text: 'Імʼя і знак лежать на цьому пристрої. Коли зʼявиться вхід, вони переїдуть в акаунт — ' +
+      'заново нічого вводити не доведеться.',
+    form: () =>
+      '<input class="field" id="mename" maxlength="24" autocomplete="off" ' +
+      'placeholder="Як вас звати" value="' + esc(V.me.name) + '">' +
+      '<div class="sigils">' + Object.keys(SIGILS).map(k =>
+        '<button class="sig' + (V.me.mark === k ? ' on' : '') + '" data-sigil="' + k + '" ' +
+        'aria-pressed="' + (V.me.mark === k) + '" title="' + SIGILS[k].n + '" ' +
+        'aria-label="' + SIGILS[k].n + '">' + sigilSVG(k) + '</button>').join('') + '</div>',
+    options: [{ label: 'Зберегти', hint: 'імʼя та знак мандрівника' }],
+    cancel: 'Скасувати',
+    onPick() {
+      readMeDraft();
+      S.me.name = V.me.name;
+      S.me.mark = V.me.mark;
+      V.me = null;
+      save();
+      closeSheet();
+      render();
+      toast('Профіль збережено', '');
+    }
+  });
+}
+
+/* Набране імʼя треба забрати з поля ДО перемальовування шторки. */
+function readMeDraft() {
+  const el = document.getElementById('mename');
+  if (el && V.me) V.me.name = el.value.trim().slice(0, 24);
 }
 
 /* ═════════ ЗАГЛУШКИ ЗОБРАЖЕНЬ ═════════
@@ -1929,7 +2153,7 @@ function toast(title, text) {
   TOAST_T = setTimeout(() => { V.toast = null; paintOverlays(); }, 3600);
 }
 function sheet(cfg) { V.sheet = cfg; paintOverlays(); }
-function closeSheet() { V.sheet = null; paintOverlays(); }
+function closeSheet() { V.sheet = null; V.me = null; paintOverlays(); }
 
 function paintOverlays() {
   const host = document.getElementById('overlays');
@@ -1941,6 +2165,12 @@ function paintOverlays() {
       '<div class="sheet" role="dialog" aria-modal="true" aria-label="' + esc(s.title) + '">' +
       '<h3>' + esc(s.title) + '</h3>' +
       (s.text ? '<p class="lede" style="font-size:12.5px">' + esc(s.text) + '</p>' : '') +
+      /* Шторка вміє не лише питати, а й приймати відповідь: форма
+         йде готовою розміткою, бо тільки той, хто її показує, знає,
+         що там має бути. Функцією — щоб перемальовування бачило
+         свіжу чернетку, а не ту, що була на момент відкриття. */
+      (s.form ? '<div class="sform">' +
+        (typeof s.form === 'function' ? s.form() : s.form) + '</div>' : '') +
       s.options.map((o, i) => '<button class="opt" data-sheet="' + i + '"><b>' + esc(o.label) + '</b>' +
         (o.hint ? '<span>' + esc(o.hint) + '</span>' : '') + '</button>').join('') +
       '<button class="btn ghost" style="margin-top:10px" data-act="sheet-close">' +
@@ -2028,6 +2258,7 @@ function startJourney() {
   /* Плану вистачає того, що є зараз: без фікса стартуємо від бази,
      а щойно GPS відгукнеться — перебудуємо, поки нікуди не поїхали. */
   V.plan = buildPlan(r, Geo.pos || P(r.from), !!Geo.pos);
+  tripStart(r);
   go('journey');
 }
 
@@ -2198,6 +2429,9 @@ function registerVisit(id, by) {
     save();
     checkBadges();
   }
+  /* У журнал подорожі точка йде навіть тоді, коли штамп уже був:
+     ви справді заїхали сюди в цій поїздці, і в історії це має бути. */
+  tripVisit(id);
 }
 
 function arrive(by) {
@@ -2230,6 +2464,7 @@ function continueJourney() {
     if (!r.solo && S.done.indexOf(r.id) < 0) S.done.push(r.id);
     V.fresh = checkBadges();
     V.ended = true;
+    tripEnd(routeStats(r).km);
     save();
     go('finish');
   }
@@ -2281,8 +2516,11 @@ function resetProgress() {
     options: [{ label: 'Так, очистити', hint: 'усі дані застосунку на цьому пристрої' }],
     cancel: 'Скасувати',
     onPick: () => {
-      S = { v: 3, visits: {}, ratings: {}, done: [], badges: [], offline: [] };
-      V.route = null; V.idx = 0; V.fresh = []; V.ended = false;
+      S = {
+        v: 4, me: null, trips: [],
+        visits: {}, ratings: {}, done: [], badges: [], offline: [], region: null
+      };
+      V.route = null; V.idx = 0; V.fresh = []; V.ended = false; V.me = null;
       Store.clear(); save();
       closeSheet();
       go('profile');
@@ -2469,7 +2707,8 @@ function render() {
    безпечніше з текстом даних і легше тестувати. */
 function onTap(e) {
   const t = e.target.closest('[data-open],[data-route],[data-theme],[data-size],[data-tiles],' +
-    '[data-star],[data-media],[data-nav],[data-back],[data-act],[data-sheet],[data-tab],[data-goreg]');
+    '[data-star],[data-media],[data-nav],[data-back],[data-act],[data-sheet],[data-tab],[data-goreg],' +
+    '[data-cab],[data-sigil]');
   if (!t) return;
   const d = t.dataset;
 
@@ -2478,6 +2717,10 @@ function onTap(e) {
   if (d.act === 'sheet-close') { closeSheet(); return; }
   if (d.goreg != null) { const q = V.q; setRegion(d.goreg); V.q = q; V.searching = true; render(); focusSearch(); return; }
   if (d.tab != null) { V.mapTab = d.tab; render(); return; }
+  if (d.cab != null) { V.cab = d.cab; render(); return; }
+  /* Знак міняємо в чернетці й перемальовуємо саму шторку, а не екран:
+     набране імʼя при цьому забираємо з поля, інакше воно зникне. */
+  if (d.sigil != null && V.me) { readMeDraft(); V.me.mark = d.sigil; paintOverlays(); return; }
   if (d.theme != null) { V.theme = d.theme; render(); return; }
   if (d.size != null) { V.size = d.size; render(); return; }
   if (d.tiles != null) { V.tiles = d.tiles; render(); return; }
@@ -2527,6 +2770,7 @@ function onTap(e) {
       if (m) m.remove();
       break;
     }
+    case 'me-edit': editMe(); break;
     case 'route-here': routeHere(V.sel); break;
     case 'to-journey': go('journey'); break;
     case 'back-map': go('map'); break;

@@ -166,6 +166,40 @@ body.darkmap .mk.on i::after{background:#0B1114;box-shadow:0 0 0 1px rgba(255,25
 .stat{border:1px solid var(--line-2);border-radius:var(--r-md);padding:12px;text-align:center;background:var(--card)}
 .stat b{font-family:"Unbounded",sans-serif;font-size:18px;display:block;line-height:1.1}
 .stat span{font-family:"IBM Plex Mono",monospace;font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+/* ── Кабінет ──────────────────────────────────────────────────────────
+   Шапка з профілем, вкладки й журнал подорожей. Знак мандрівника
+   малюється тим самим словником, що й позначки на карті: людина
+   обирає, ким вона в цьому застосунку ходить. */
+.mehead{display:flex;align-items:center;gap:13px}
+.meav{width:52px;height:52px;flex:none;border-radius:var(--r-pill);border:1.5px solid var(--verd-dk);
+  background:rgba(46,125,108,.09);display:grid;place-items:center}
+.meav svg{width:26px;height:26px;fill:var(--verd-dk)}
+.meav:active{transform:scale(.96)}
+.mename{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.mename b{font-family:"Unbounded",sans-serif;font-size:16px;line-height:1.2;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cabtabs{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;padding:3px;
+  background:rgba(21,36,46,.06);border-radius:var(--r-pill)}
+.cabtabs button{padding:9px;border-radius:var(--r-pill);font-size:12.5px;color:var(--ink-3)}
+.cabtabs button[aria-selected="true"]{background:var(--sheet);color:var(--ink);box-shadow:var(--shadow-sm)}
+.trips{margin-top:12px}
+.trips .card{margin-bottom:9px}
+.tag.solo{color:var(--ink-3);border-color:var(--line-2);background:rgba(21,36,46,.04)}
+/* Назви точок у журналі — не ярлики статусу, а звичайні імена:
+   верхній регістр перетворював список місць на крик. */
+.pchip{font-size:11.5px;padding:5px 10px;border-radius:var(--r-pill);
+  border:1px solid var(--line-2);color:var(--ink-2);background:var(--sheet);
+  white-space:nowrap;cursor:pointer}
+.pchip:active{background:rgba(21,36,46,.07)}
+/* Форма всередині шторки: поле імені й вибір знака. */
+.sform{margin:12px 0 4px;display:flex;flex-direction:column;gap:10px}
+.sigils{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+.sig{aspect-ratio:1;border:1px solid var(--line-2);border-radius:var(--r-sm);
+  display:grid;place-items:center;background:var(--card)}
+.sig svg{width:20px;height:20px;fill:var(--ink-3)}
+.sig.on{border-color:var(--verd-dk);background:rgba(46,125,108,.1)}
+.sig.on svg{fill:var(--verd-dk)}
+
 .stops{list-style:none;padding:0;margin:0}
 .stops li{display:flex;gap:11px;padding:9px 0}
 .dotcol{display:flex;flex-direction:column;align-items:center;flex:none;width:16px}
