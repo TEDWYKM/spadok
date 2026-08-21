@@ -2,11 +2,10 @@
   "appId": "ua.spadok.app",
   "appName": "Спадок",
   "webDir": "www",
-  "bundledWebRuntime": false,
   "android": {
     "allowMixedContent": false,
     "captureInput": true,
-    "webContentsDebuggingEnabled": true
+    "webContentsDebuggingEnabled": false
   },
   "plugins": {
     "Geolocation": {

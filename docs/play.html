@@ -135,6 +135,9 @@
   .chip.me{background:var(--green-soft);color:var(--green)}
   .chip.you{background:var(--amber-soft);color:var(--amber)}
   .chip.risk{background:var(--red-soft);color:var(--red)}
+  .chip.ok{background:var(--green-soft);color:var(--green)}
+  /* Закритий пункт лишається на екрані, але не тягне на себе увагу. */
+  .item.shipped{opacity:.72;box-shadow:none}
 
   .item.risk{border-left:3px solid var(--red)}
   .ok{
@@ -187,9 +190,9 @@
 <div class="wrap">
 
 <header>
-  <div class="eyebrow">Спадок · версія 0.5.0</div>
+  <div class="eyebrow">Спадок · версія 0.7.0</div>
   <h1>Що лишилось до Google&nbsp;Play</h1>
-  <p class="lede">Застосунок працює й збирається в APK. Магазин вимагає іншого: релізного підпису, свіжого targetSdk, формату AAB — і тижнів очікування, які не пришвидшити. Нижче — усе, що між сьогоднішнім станом і сторінкою в магазині.</p>
+  <p class="lede">Технічну частину зроблено: Capacitor 8 із targetSdk 36, збірка AAB, політика конфіденційності. Лишилося те, що можете зробити тільки ви — ключ підпису, акаунт розробника і два тижні закритого тесту, які не пришвидшити нічим.</p>
   <div class="clock" id="clock">
     <b id="days">—</b><span id="clocktext">рахую до 31 серпня 2026</span>
   </div>
@@ -215,7 +218,7 @@
 
 <section>
   <h2>Код і збірка</h2>
-  <p class="note">Це можу зробити я — крім ключа підпису, який маєте створити ви самі.</p>
+  <p class="note">Чотири пункти закриті. Ключ підпису за вами; свій OSRM почекає до першого реального навантаження.</p>
   <div class="stack" id="code"></div>
 </section>
 
@@ -244,7 +247,7 @@
 </section>
 
 <footer>
-  Складено 21.08.2026 за станом репозиторію на версії 0.5.0.<br>
+  Складено 21.08.2026, оновлено за станом репозиторію на версії 0.7.0.<br>
   Вимоги Google Play змінюються — перед подачею звіряйтеся з
   <a href="https://support.google.com/googleplay/android-developer/answer/11926878">довідкою Play Console</a>.
 </footer>
@@ -254,18 +257,16 @@
 <script>
 const ITEMS = {
   code: [
-    ['targetSdk 36 — і це вже блокер, а не майбутній', 'me',
-     'Capacitor 6 дає targetSdk <strong>34</strong>. Play не приймає нові застосунки нижче 35 ще з минулого серпня, а з <strong>31 серпня 2026</strong> планка — 36. Тобто йти треба одразу на 36, тобто на <strong>Capacitor 8</strong>: compileSdk і targetSdk 36, minSdk 24, Gradle plugin 8.13.0, wrapper 8.14.3, Kotlin 2.2.20. Плюс дрібниці міграції — <code>density</code> у <code>configChanges</code> і перейменований <code>capacitor_bridge_layout_main.xml</code>. Найбільша технічна робота зі списку.'],
+    ['targetSdk 36 — зроблено', 'ok',
+     'Проєкт переведено на <strong>Capacitor 8</strong>: compileSdk і targetSdk 36, minSdk 24. Плюс запобіжник — <code>patch-android.mjs</code> тепер сам читає <code>variables.gradle</code> і зупиняє збірку, якщо targetSdk нижчий за 36. Дізнаватись про це в Play Console після двох тижнів тесту було б найдорожчим способом.'],
+    ['AAB замість APK — зроблено', 'ok',
+     'Робочий процес збирає <code>.aab</code> поруч зі звичним APK. APK лишається в Releases для встановлення вручну, AAB лягає в артефакти запуску — публічно він ні до чого.'],
+    ['Налагодження WebView вимкнене — зроблено', 'ok',
+     '<code>webContentsDebuggingEnabled: false</code>, і <code>check.mjs</code> падає, якщо це повернуть. Заразом <code>density</code> у <code>configChanges</code>: без нього на Android 16 WebView перезавантажується від зміни розміру вікна — посеред дороги це втрата екрана з навігацією.'],
+    ['Політика конфіденційності — зроблено', 'ok',
+     'Лежить у <code>www/privacy.html</code>, поїде на ті самі GitHub Pages. Названо не лише «нічого не передаємо», а й те, що бачать сервери карт і OSRM — останній отримує справжні координати. <code>check.mjs</code> падає, якщо цю згадку приберуть. <strong>Лишилось вписати робочу пошту</strong> замість заглушки.'],
     ['Ключ підпису — створюєте ви', 'you',
-     'Зараз збірка підписана debug-ключем, який Play не прийме. Потрібен власний keystore. <strong>Створити його й зберегти пароль маєте ви</strong> — я з ключами й паролями не працюю. Втрата цього ключа означає, що застосунок неможливо буде оновити: зберігайте копію окремо від комп’ютера.'],
-    ['Підпис у CI через GitHub Secrets', 'me',
-     'Коли ключ буде, я допишу <code>signingConfigs</code> у Gradle і навчу робочий процес брати ключ та паролі з секретів репозиторію. Самі секрети додаєте ви — у налаштуваннях GitHub, я їх не бачу.'],
-    ['AAB замість APK', 'me',
-     '<code>bundleRelease</code> замість <code>assembleDebug</code>. Play не приймає APK для нових застосунків із серпня 2021 — тільки Android App Bundle. APK у Releases лишиться для встановлення вручну, це зручно й нікому не заважає.'],
-    ['Вимкнути налагодження WebView', 'me',
-     'У <code>capacitor.config.json</code> стоїть <code>webContentsDebuggingEnabled: true</code>. У релізній збірці це відкриває вміст застосунку для інспектування з підключеного комп’ютера. Для debug лишити, для релізу — вимкнути.'],
-    ['Політика конфіденційності', 'me',
-     'Обов’язкова адреса, без неї не заповнити Data safety. Напишу чесний текст — застосунок читає місце тільки на пристрої, нічого не передає, прогрес живе локально — і покладу на ті самі GitHub Pages. Це десять хвилин роботи, але без неї далі не пройти.'],
+     'Команда <code>keytool</code> і чотири секрети GitHub описані в README, розділ «Ключ підпису для Google Play». Я з ключами й паролями не працюю. Поки секретів немає, збірка працює як раніше й робить тільки APK — нічого не ламається. Зʼявляться секрети — почне виходити ще й AAB.'],
     ['Свій OSRM і свої плитки', 'me',
      'Демо-сервер OSRM прямо заборонений для продакшену, а тайли OpenStreetMap мають ліміт використання, який застосунок у магазині перевищить. Поки це «відома межа» в README — у магазині це вже порушення чужих умов. Варіанти: власний інстанс OSRM або платний провайдер плиток.']
   ],
@@ -293,7 +294,7 @@ const ITEMS = {
   ]
 };
 
-const KEY = 'spadok-play-v1';
+const KEY = 'spadok-play-v2';
 let state = {};
 try { state = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { state = {}; }
 
@@ -301,7 +302,7 @@ function save() {
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* приватне вікно — просто не запам'ятаємо */ }
 }
 
-const LABEL = { me: 'роблю я', you: 'тільки ви', risk: 'ризик' };
+const LABEL = { me: 'роблю я', you: 'тільки ви', risk: 'ризик', ok: 'зроблено' };
 let total = 0;
 
 Object.keys(ITEMS).forEach(group => {
@@ -310,7 +311,7 @@ Object.keys(ITEMS).forEach(group => {
     const id = group + ':' + i;
     total++;
     const row = document.createElement('label');
-    row.className = 'item' + (it[1] === 'risk' ? ' risk' : '') + (state[id] ? ' done' : '');
+    row.className = 'item' + (it[1] === 'risk' ? ' risk' : '') + (it[1] === 'ok' ? ' shipped' : '') + (state[id] ? ' done' : '');
     row.innerHTML =
       '<input type="checkbox"' + (state[id] ? ' checked' : '') + '>' +
       '<div><div class="head"><b>' + it[0] + '</b>' +

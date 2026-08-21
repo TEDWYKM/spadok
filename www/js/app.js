@@ -1961,8 +1961,7 @@ function scrProfile() {
     '<button class="meav" data-act="me-edit" aria-label="Змінити знак і імʼя">' +
     sigilSVG(me.mark) + '</button>' +
     '<div class="mename"><b>' + esc(meName()) + '</b>' +
-    '<span class="meta">у Спадку з ' + dmy(me.since) + '</span></div>' +
-    '<button class="btn-sm" data-act="me-edit">Змінити</button></div>' +
+    '<span class="meta">у Спадку з ' + dmy(me.since) + '</span></div></div>' +
 
     '<div class="grid3" style="margin:16px 0">' +
     '<div class="stat"><b>' + vis.length + ' / ' + POINTS.length + '</b><span>точок</span></div>' +
@@ -1994,8 +1993,6 @@ function scrProfile() {
         (stale ? 'У ' + pts(stale) + ' перевірка застаріла: вони лишаються в маршрутах, ' +
           'але доступність варто уточнити перед виїздом.' : '') + '</div>'
       : '') +
-
-    '<button class="btn-sm" style="width:100%" data-act="reset">Очистити прогрес</button>' +
 
     /* Два рядки, які мусять бути на екрані.
        Перший — обіцянка про дані: тепер тут лежить не лише прогрес,
@@ -2515,12 +2512,68 @@ function report() {
   });
 }
 
+/* ═════════ НАЛАШТУВАННЯ ═════════
+   Усе, що змінює або стирає ваші дані, зібране в одному місці —
+   а не розкидане кнопками по екрану кабінету. */
+function settings() {
+  sheet({
+    title: 'Налаштування',
+    text: 'Кабінет лежить на цьому пристрої, тому все нижче діє тут і тільки тут.',
+    options: [
+      { label: 'Змінити профіль', hint: 'імʼя та знак мандрівника' },
+      { label: 'Очистити прогрес', hint: 'штампи, оцінки, історія, нагороди — профіль лишиться' },
+      { label: 'Видалити акаунт', hint: 'усе разом із профілем' }
+    ],
+    cancel: 'Закрити',
+    onPick(_, i) {
+      closeSheet();
+      if (i === 0) editMe();
+      else if (i === 1) resetProgress();
+      else deleteAccount();
+    }
+  });
+}
+
+/* Прогрес і акаунт — різні речі, і кнопки мусять робити різне.
+   Дві кнопки з однаковим наслідком були б не турботою, а плутаниною. */
 function resetProgress() {
   sheet({
     title: 'Очистити прогрес?',
-    text: 'Зникнуть усі штампи відвідин, оцінки й нагороди. Це не можна відмінити.',
+    text: 'Зникнуть штампи відвідин, оцінки, журнал подорожей і нагороди. ' +
+      'Профіль — імʼя і знак — лишиться. Відмінити не можна.',
     center: true,
-    options: [{ label: 'Так, очистити', hint: 'усі дані застосунку на цьому пристрої' }],
+    options: [{ label: 'Так, очистити', hint: 'пройдене зникне, ви лишитесь' }],
+    cancel: 'Скасувати',
+    onPick: () => {
+      const me = S.me;
+      S = {
+        v: 4, me, trips: [],
+        visits: {}, ratings: {}, done: [], badges: [], offline: [], region: S.region
+      };
+      V.route = null; V.idx = 0; V.fresh = []; V.ended = false; V.me = null;
+      save();
+      closeSheet();
+      go('profile');
+      toast('Прогрес очищено', 'Профіль лишився на місці.');
+    }
+  });
+}
+
+/* Видалення акаунта. Поки сервера немає, «акаунт» це запис на пристрої,
+   і видалення відбувається тут-таки — тому й сказано прямо, що
+   надсилати запит нікуди не треба.
+
+   Коли зʼявиться вхід, сюди додасться виклик DELETE /me: Google Play
+   вимагає, щоб шлях видалення акаунта був усередині застосунку,
+   а не лише на сайті. */
+function deleteAccount() {
+  sheet({
+    title: 'Видалити акаунт?',
+    text: 'Зникне все: профіль, штампи, оцінки, журнал подорожей, нагороди. ' +
+      'Сервера в застосунку немає, тому видалення відбувається просто тут, ' +
+      'і просити нас ні про що не треба. Відновити неможливо.',
+    center: true,
+    options: [{ label: 'Так, видалити все', hint: 'застосунок стане як після встановлення' }],
     cancel: 'Скасувати',
     onPick: () => {
       S = {
@@ -2528,10 +2581,11 @@ function resetProgress() {
         visits: {}, ratings: {}, done: [], badges: [], offline: [], region: null
       };
       V.route = null; V.idx = 0; V.fresh = []; V.ended = false; V.me = null;
+      V.region = null; V.cab = 'trips';
       Store.clear(); save();
       closeSheet();
-      go('profile');
-      toast('Прогрес очищено', '');
+      go('map');
+      toast('Акаунт видалено', 'Усі дані стерто з цього пристрою.');
     }
   });
 }
@@ -2678,7 +2732,14 @@ function render() {
           ? '<button class="barbtn" data-act="search-on" aria-label="Пошук за назвою">' +
             '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.2-4.2"/></svg>' +
             (V.q ? '<b></b>' : '') + '</button>'
-          : ''));
+          /* Налаштування живуть там, де кабінет: усе, що змінює або
+             стирає ваші дані, зібране в одному місці, а не розкидане
+             кнопками по екрану. */
+          : V.screen === 'profile'
+            ? '<button class="barbtn" data-act="settings" aria-label="Налаштування">' +
+              '<svg viewBox="0 0 24 24"><path d="M4 7h9M19 7h1M4 17h5M15 17h5"/>' +
+              '<circle cx="16" cy="7" r="2.4"/><circle cx="12" cy="17" r="2.4"/></svg></button>'
+            : ''));
 
   /* Дорожній режим існує тільки на екрані подорожі: пішов на інший
      екран — рамка, заголовок і навігація повертаються самі. */
@@ -2777,6 +2838,7 @@ function onTap(e) {
       if (m) m.remove();
       break;
     }
+    case 'settings': settings(); break;
     case 'me-edit': editMe(); break;
     case 'route-here': routeHere(V.sel); break;
     case 'to-journey': go('journey'); break;

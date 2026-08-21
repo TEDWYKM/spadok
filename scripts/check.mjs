@@ -446,16 +446,69 @@ else if (!/V\.ended = true;[\s\S]{0,160}tripEnd\(/.test(appCode))
   bad('подорож не закривається в журналі — усі записи лишаться «триває»');
 else ok('журнал ведеться від старту до фінішу');
 
-/* «Очистити прогрес» мусить чистити й кабінет. Лишити там імʼя
-   й історію після явного прохання все стерти — це не недогляд,
-   а обман. */
-if (!/trips: \[\]/.test(resetBlock) || !/me: null/.test(resetBlock))
-  bad('очищення прогресу лишає профіль або історію подорожей');
-else ok('очищення прогресу стирає й кабінет');
+/* Прогрес і акаунт — різні речі, і кнопки мусять робити різне.
+   «Очистити прогрес» стирає пройдене й лишає профіль; «Видалити
+   акаунт» стирає все. Якби вони робили одне й те саме, одна з них
+   брехала б назвою. */
+const delBlock = (appCode.match(/function deleteAccount\(\)[\s\S]{0,1400}?\n\}/) || [''])[0];
+if (!/trips: \[\]/.test(resetBlock))
+  bad('очищення прогресу лишає журнал подорожей');
+else if (/me: null/.test(resetBlock))
+  bad('очищення прогресу стирає й профіль — тоді воно нічим не відрізняється від видалення акаунта');
+else if (!delBlock)
+  bad('немає deleteAccount() — Google Play вимагає шлях видалення акаунта в самому застосунку');
+else if (!/me: null/.test(delBlock) || !/Store\.clear\(\)/.test(delBlock))
+  bad('видалення акаунта лишає профіль або сховище — це неповне видалення');
+else ok('очищення прогресу й видалення акаунта роблять різні речі');
 
 ['mehead', 'meav', 'mename', 'cabtabs', 'pchip', 'sigils']
   .forEach(c => css.includes('.' + c) ? null : bad('немає стилю .' + c + ' — кабінет розсиплеться'));
 ok('кабінет має свої стилі');
+
+/* ── 11. Google Play ─────────────────────────────────────────────────
+   Речі, через які пакет не приймуть або приймуть і потім знімуть.
+   Дізнаватись про них у Play Console, після реєстрації, підпису
+   й двох тижнів закритого тесту, — найдорожчий спосіб. */
+
+/* Політика конфіденційності обовʼязкова: без адреси не заповнити форму
+   Data safety. Вона віддається з тих самих Pages, що й застосунок. */
+const privPath = join(www, 'privacy.html');
+if (!existsSync(privPath)) {
+  bad('немає www/privacy.html — без політики конфіденційності Play не пустить');
+} else {
+  const priv = readFileSync(privPath, 'utf8');
+  /* Найлегше місце збрехати не зі зла, а недоглядом: написати «нічого
+     не передаємо» і забути, що тайл-сервер і OSRM таки дещо бачать.
+     OSRM отримує справжні координати — це має бути названо. */
+  if (!/OSRM/i.test(priv))
+    bad('політика мовчить про OSRM, якому йдуть справжні координати — це неправда за замовчуванням');
+  else if (!/OpenStreetMap|CARTO/i.test(priv))
+    bad('політика мовчить про сервери карт, які бачать IP і район перегляду');
+  else ok('політика конфіденційності називає й сторонні сервіси');
+
+  if (/ПОШТА@ПРИКЛАД/.test(priv))
+    console.log('  · у політиці лишилась заглушка ПОШТА@ПРИКЛАД — Play вимагає робочий контакт');
+}
+
+/* У релізній збірці WebView не має відкриватися для інспектування
+   з підключеного комп'ютера. */
+try {
+  const capCfg = JSON.parse(readFileSync(join(root, 'capacitor.config.json'), 'utf8'));
+  (capCfg.android || {}).webContentsDebuggingEnabled === false
+    ? ok('налагодження WebView вимкнене для релізу')
+    : bad('webContentsDebuggingEnabled не false — реліз піде з відкритим для інспектування WebView');
+} catch (e) { bad('capacitor.config.json: ' + e.message); }
+
+/* Планку targetSdk можна «полагодити», просто знизивши число в скрипті.
+   Тоді збірка пройде, а Play відмовить — тобто перевірка перетвориться
+   на свою протилежність. */
+if (existsSync(join(root, 'scripts', 'patch-android.mjs'))) {
+  const pa = readFileSync(join(root, 'scripts', 'patch-android.mjs'), 'utf8');
+  const need = Number((pa.match(/PLAY_TARGET_SDK\s*=\s*(\d+)/) || [])[1]);
+  if (!need) bad('у patch-android.mjs немає PLAY_TARGET_SDK — планку Play ніхто не стереже');
+  else if (need < 36) bad('PLAY_TARGET_SDK знижений до ' + need + ' — Play вимагає щонайменше 36');
+  else ok('планка targetSdk для Play на місці: ' + need);
+}
 
 console.log(fails ? `\n${fails} проблем.` : '\nУсе сходиться.');
 process.exit(fails ? 1 : 0);

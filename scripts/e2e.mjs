@@ -1164,7 +1164,61 @@ cacheNames.includes('spadok-tiles-' + shipped)
   ? bad('кеш плиток названий по версії застосунку — наступний реліз зітре викачану карту')
   : ok('кеш плиток не привʼязаний до версії застосунку');
 
-/* ── 17. Помилки в консолі ───────────────────────────────────────── */
+/* ── 17. Налаштування ────────────────────────────────────────────────
+   Усе, що змінює або стирає дані, зібране в одному місці. Розділ
+   останній навмисно: тут дані справді стираються. */
+await click('[data-nav="profile"]');
+await sleep(300);
+(await $('[data-act="settings"]'))
+  ? ok('у кабінеті є кнопка налаштувань')
+  : bad('немає кнопки налаштувань');
+!(await $('[data-act="reset"]'))
+  ? ok('очищення прогресу більше не висить окремою кнопкою на екрані')
+  : bad('кнопка очищення лишилась поза налаштуваннями');
+
+await click('[data-act="settings"]');
+await sleep(350);
+(await count('.sheet .opt')) === 3
+  ? ok('три пункти налаштувань')
+  : bad('пунктів налаштувань: ' + await count('.sheet .opt'));
+
+/* Очищення прогресу лишає профіль. Інакше це було б видалення акаунта
+   під іншою назвою, і одна з двох кнопок брехала б. */
+await click('[data-sheet="1"]');
+await sleep(320);
+(await $('.sheet .opt')) ? ok('підтвердження відкрилось поверх налаштувань') : bad('немає підтвердження');
+await click('[data-sheet="0"]');
+await sleep(550);
+const cleared = await evaluate(`return {
+  visits: Object.keys(S.visits).length, trips: S.trips.length,
+  badges: S.badges.length, name: (S.me || {}).name || '', id: !!(S.me || {}).id
+}`);
+cleared.visits === 0 && cleared.trips === 0 && cleared.badges === 0
+  ? ok('прогрес очищено')
+  : bad('після очищення щось лишилось: ' + JSON.stringify(cleared));
+cleared.name === 'Бандура' && cleared.id
+  ? ok('профіль пережив очищення — стерли пройдене, а не людину')
+  : bad('очищення прогресу знесло профіль: ' + JSON.stringify(cleared));
+
+/* Видалення акаунта, навпаки, стирає все. Google Play вимагає, щоб
+   такий шлях був усередині застосунку, а не лише на сайті. */
+await click('[data-act="settings"]');
+await sleep(320);
+await click('[data-sheet="2"]');
+await sleep(320);
+await click('[data-sheet="0"]');
+await sleep(650);
+const wiped = await evaluate(`return {
+  me: S.me, trips: S.trips.length, visits: Object.keys(S.visits).length,
+  screen: V.screen,
+  storedMe: (JSON.parse(localStorage.getItem('spadok:lviv:v3') || '{}').me) || null
+}`);
+!wiped.me && !wiped.storedMe && wiped.trips === 0 && wiped.visits === 0
+  ? ok('видалення акаунта стерло профіль і все пройдене, зокрема зі сховища')
+  : bad('після видалення лишилось: ' + JSON.stringify(wiped));
+await shot('14-settings');
+
+/* ── 18. Помилки в консолі ───────────────────────────────────────── */
 await sleep(300);
 errors.length === 0
   ? ok('консоль чиста')

@@ -1,6 +1,6 @@
 {
   "name": "spadok",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "private": true,
   "description": "Спадок — застосунок історико-культурного туризму. MVP: Львівщина і Київщина.",
   "license": "MIT",
@@ -12,15 +12,16 @@
     "check": "node scripts/check.mjs",
     "e2e": "node scripts/e2e.mjs",
     "sync": "cap sync android",
-    "apk": "cap sync android && cd android && ./gradlew assembleDebug"
+    "apk": "cap sync android && cd android && ./gradlew assembleDebug",
+    "aab": "cap sync android && cd android && ./gradlew bundleRelease"
   },
   "dependencies": {
-    "@capacitor/android": "^6.2.0",
-    "@capacitor/core": "^6.2.0",
-    "@capacitor/geolocation": "^6.1.0"
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
+    "@capacitor/geolocation": "^8.0.0"
   },
   "devDependencies": {
-    "@capacitor/cli": "^6.2.0",
+    "@capacitor/cli": "^8.0.0",
     "leaflet": "^1.9.4"
   }
 }
