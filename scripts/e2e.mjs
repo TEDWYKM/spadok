@@ -863,9 +863,9 @@ const closed = await evaluate(`return {
 await shot('11-home');
 await click('[data-tab="places"]');
 
-/* ── 11b. Області ────────────────────────────────────────────────── */
-/* Стаємо під Києвом — застосунок мусить сам перемкнутись на Київщину
-   і показати саме її точки й маршрути. */
+/* ── 11b. Історико-географічні регіони ──────────────────────────── */
+/* Стаємо під Києвом — застосунок мусить сам перемкнутись на
+   Наддніпрянщину і показати саме її точки й маршрути. */
 await standAt(50.1139, 30.8657);   /* Витачів */
 await sleep(1200);
 const kyiv = await evaluate(`return {
@@ -873,32 +873,40 @@ const kyiv = await evaluate(`return {
   places: [...document.querySelectorAll('#mlist .card')].map(c => c.dataset.open),
   regsel: document.querySelector('.regsel')?.innerText.trim() || ''
 }`);
-kyiv.region === 'kyiv'
-  ? ok('за положенням обрано Київщину')
-  : bad('область не перемкнулась: ' + kyiv.region);
+kyiv.region === 'naddnipro'
+  ? ok('за положенням обрано Наддніпрянщину')
+  : bad('регіон не перемкнувся: ' + kyiv.region);
 kyiv.places.length === 7 && kyiv.places.every(id => ['sofia','lavra','zoloti','andriiv','zamkova','vytachiv','divych'].includes(id))
-  ? ok('у списку лише київські точки, найближча — ' + kyiv.places[0])
+  ? ok('у списку лише наддніпрянські точки, найближча — ' + kyiv.places[0])
   : bad('у списку чужі точки: ' + JSON.stringify(kyiv.places));
 kyiv.places[0] === 'vytachiv'
   ? ok('найближчою стала точка, на якій ми стоїмо')
   : bad('найближча не та: ' + kyiv.places[0]);
-kyiv.regsel === 'Київщина' ? ok('перемикач показує Київщину') : bad('перемикач: ' + kyiv.regsel);
+kyiv.regsel === 'Наддніпрянщина'
+  ? ok('перемикач показує Наддніпрянщину')
+  : bad('перемикач: ' + kyiv.regsel);
+
+/* Назва регіону ширша за набір: «Наддніпрянщина» — не лише Київщина.
+   Це мусить бути сказано просто під перемикачем, а не в документації. */
+(await evaluate("return (document.querySelector('.mhead')||{}).innerText||''")).includes('Київщина')
+  ? ok('під назвою регіону сказано, що покрито поки лише Київщину')
+  : bad('уточнення про покриття не видно на екрані');
 
 await click('[data-tab="routes"]');
 await sleep(300);
-/* ROUTES живе в сторінці, не в тесті — питаємо про область там. */
+/* ROUTES живе в сторінці, не в тесті — питаємо про регіон там. */
 const kroutes = await evaluate(`
   const ids = [...document.querySelectorAll('#mlist .card')].map(c => c.dataset.route);
-  return { ids, alien: ids.filter(id => (ROUTES.find(r => r.id === id) || {}).reg !== 'kyiv') };
+  return { ids, alien: ids.filter(id => (ROUTES.find(r => r.id === id) || {}).reg !== 'naddnipro') };
 `);
 kroutes.ids.length === 4 && !kroutes.alien.length
-  ? ok('маршрути теж лише київські: ' + kroutes.ids.length)
-  : bad('маршрути з чужої області: ' + JSON.stringify(kroutes));
+  ? ok('маршрути теж лише наддніпрянські: ' + kroutes.ids.length)
+  : bad('маршрути з чужого регіону: ' + JSON.stringify(kroutes));
 await click('[data-tab="places"]');
 await shot('11b-kyiv');
 
-/* Пошук обмежений областю — але не мусить бути глухим кутом:
-   якщо точка є в іншій області, застосунок пропонує перейти. */
+/* Пошук обмежений регіоном — але не мусить бути глухим кутом:
+   якщо точка є в іншому регіоні, застосунок пропонує перейти. */
 await click('[data-act="search-on"]');
 await evaluate(`
   const el = document.getElementById('q');
@@ -907,21 +915,21 @@ await evaluate(`
   return null;
 `);
 await sleep(400);
-(await $('[data-goreg="lviv"]'))
-  ? ok('порожній пошук підказує іншу область замість глухого кута')
-  : bad('пошук мовчить про точку, яка є в іншій області');
-await click('[data-goreg="lviv"]');
+(await $('[data-goreg="halych"]'))
+  ? ok('порожній пошук підказує інший регіон замість глухого кута')
+  : bad('пошук мовчить про точку, яка є в іншому регіоні');
+await click('[data-goreg="halych"]');
 await sleep(500);
 const jumped = await evaluate(`return {
   region: V.region, saved: S.region,
   ids: [...document.querySelectorAll('#mlist .card')].map(c => c.dataset.open)
 }`);
-jumped.region === 'lviv' && jumped.ids.length === 1 && jumped.ids[0] === 'olesko'
-  ? ok('перехід в іншу область зберігає запит і показує знайдене')
+jumped.region === 'halych' && jumped.ids.length === 1 && jumped.ids[0] === 'olesko'
+  ? ok('перехід в інший регіон зберігає запит і показує знайдене')
   : bad('перехід загубив запит: ' + JSON.stringify(jumped));
-jumped.saved === 'lviv'
+jumped.saved === 'halych'
   ? ok('вибір руками записано, щоб пережив перезапуск')
-  : bad('вибір області не збережено: ' + jumped.saved);
+  : bad('вибір регіону не збережено: ' + jumped.saved);
 await click('[data-act="search-off"]');
 
 /* ── 11c. Уся Україна ────────────────────────────────────────────────
@@ -938,9 +946,14 @@ const picker = await evaluate(`return {
 picker.opts[0] === 'Уся Україна'
   ? ok('«Уся Україна» першим пунктом у виборі')
   : bad('немає режиму всієї країни: ' + JSON.stringify(picker.opts));
-picker.opts.length === 3
-  ? ok('плюс обидва регіони, разом ' + picker.opts.length)
+picker.opts.length === 16
+  ? ok('плюс усі 15 регіонів, разом ' + picker.opts.length)
   : bad('пунктів у виборі: ' + picker.opts.length);
+/* Порожні регіони не ховаються: інакше список удавав би, що країна
+   складається з двох регіонів, і людина не побачила б, куди йде проєкт. */
+picker.hints.filter(h => /поки порожньо/i.test(h)).length === 13
+  ? ok('13 порожніх регіонів показані з нулем, а не сховані')
+  : bad('порожніх у списку: ' + picker.hints.filter(h => /поки порожньо/i.test(h)).length);
 /^24 точки/.test(picker.hints[0])
   ? ok('підпис каже, скільки точок у режимі всієї країни')
   : bad('підпис режиму: ' + picker.hints[0]);
@@ -982,8 +995,57 @@ allBadges === 13
 await click('[data-nav="map"]');
 await click('[data-act="region"]');
 await sleep(300);
-await click('[data-sheet="1"]');
+await click('[data-sheet="1"]');   /* перший регіон списку — Галичина */
 await sleep(500);
+
+/* ── 11d. Порожній регіон ────────────────────────────────────────────
+   Поділ на 15 регіонів означає, що 13 із них поки без точок. Людина,
+   яка відкрила застосунок у Харкові, не має ані впертись у порожню
+   карту, ані бути мовчки перекинутою в чужий регіон. */
+await evaluate('V.searching = false; V.q = ""; S.region = null; V.region = null; ' +
+  'V.emptyHome = null; save(); return 1');
+await standAt(49.9935, 36.2304);   /* Харків */
+await sleep(1300);
+const kharkiv = await evaluate(`return {
+  guess: V.emptyHome, region: V.region,
+  head: (document.querySelector('.mhead') || {}).innerText || '',
+  count: document.querySelectorAll('#mlist .card').length
+}`);
+kharkiv.guess === 'slobozhanshchyna'
+  ? ok('регіон упізнано правильно навіть без жодної точки в ньому')
+  : bad('регіон за положенням: ' + kharkiv.guess);
+kharkiv.region === 'all' && kharkiv.count === 24
+  ? ok('замість порожньої карти показано всю Україну')
+  : bad('порожній регіон лишив людину ні з чим: ' + JSON.stringify(kharkiv));
+/Слобожанщина/.test(kharkiv.head)
+  ? ok('сказано прямо, який регіон упізнали і чому в ньому порожньо')
+  : bad('підміну регіону зроблено мовчки: ' + kharkiv.head.slice(0, 160));
+
+/* Обраний руками порожній регіон показує не «нічого за фільтром»,
+   а власне пояснення — і вихід в один тап. */
+await evaluate('setRegion("krym"); return 1');
+await sleep(500);
+const empty = await evaluate(`return {
+  text: document.getElementById('mlist').innerText,
+  out: !!document.querySelector('#mlist [data-goreg="all"]')
+}`);
+/точок поки немає/i.test(empty.text)
+  ? ok('порожній регіон пояснює себе, а не мовчить')
+  : bad('порожній регіон показує: ' + empty.text.slice(0, 120));
+/війн/i.test(empty.text)
+  ? ok('сказано й про те, чому десь статуси перевірити неможливо')
+  : bad('про воєнний контекст у порожньому регіоні нічого');
+empty.out ? ok('вихід у «всю Україну» в один тап') : bad('із порожнього регіону немає виходу');
+await shot('11d-empty');
+await click('#mlist [data-goreg="all"]');
+await sleep(450);
+(await evaluate('return V.region')) === 'all'
+  ? ok('кнопка справді перемикає на всю Україну')
+  : bad('кнопка виходу не спрацювала');
+
+/* Повертаємось у Галичину, щоб решта тесту йшла звичним сценарієм. */
+await evaluate('setRegion("halych"); return 1');
+await sleep(450);
 
 /* ── 12. Шторки замість системних діалогів ───────────────────────── */
 await click('[data-nav="map"]');
@@ -1283,7 +1345,7 @@ cacheNames.includes('spadok-tiles-' + shipped)
 /* Попередні розділи могли лишити інший регіон або фільтр довжини —
    ставимо відомий стан, інакше «Золотої підкови» просто не буде
    в списку, і тест провалиться не на тому, що перевіряє. */
-await evaluate('setRegion("lviv"); V.size = "all"; V.theme = "all"; render(); return 1');
+await evaluate('setRegion("halych"); V.size = "all"; V.theme = "all"; render(); return 1');
 await click('[data-nav="routes"]');
 await sleep(340);
 const rpop = await count('.pop');

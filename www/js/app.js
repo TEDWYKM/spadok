@@ -22,7 +22,7 @@
 'use strict';
 
 const CONFIG = {
-  /* Середня дорожня швидкість по області, км/год — для оцінки часу. */
+  /* Середня дорожня швидкість по регіону, км/год — для оцінки часу. */
   avgSpeedKmh: 52,
   /* Скільки хвилин закладаємо на одну зупинку. */
   minutesPerStop: 45,
@@ -56,6 +56,11 @@ const Store = (function () {
      означало б, що в кожного, хто вже користується застосунком,
      прогрес одного дня просто зникне. Версія схеми живе всередині
      даних — S.v, — і саме її піднімає upgrade(). */
+  /* Ключ лишається старим навмисно. «lviv» у ньому — слід перших
+     версій, коли область була одна; перейменувати його на halych
+     означало б стерти кабінет і прогрес усім, хто вже користується.
+     Ім'я ключа нікому не видно, а дані видно — тому нехай буде
+     негарно, але ціле. */
   const KEY = 'spadok:lviv:v3';
   const LEGACY = 'spadok:lviv:v2';
   let backend = null, mem = null;
@@ -179,9 +184,12 @@ let V = {
   ended: false,
   /* Пошук: q — сам запит, searching — чи розгорнуте поле в шапці. */
   q: '', searching: false,
-  /* Область, яку зараз показуємо. null — ще не визначились:
-     чекаємо GPS, щоб обрати найближчу. */
-  region: null,
+  /* Регіон, який зараз показуємо. null — ще не визначились:
+     чекаємо GPS, щоб обрати найближчий.
+     emptyHome — регіон, у якому людина відкрила застосунок, якщо
+     точок там ще немає: тримаємо його, щоб пояснити, чому показано
+     всю Україну замість її місця. */
+  region: null, emptyHome: null,
   /* Головний екран: яка вкладка у шторці, у якому вона положенні
      і чи вже ставили карту на позицію користувача. */
   mapTab: 'places', snap: 0, centered: false, listAt: null,
@@ -211,11 +219,13 @@ function uid() {
   return 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
 }
 
-/* ═════════ ОБЛАСТЬ ═════════
-   Точка і маршрут належать області. Без цього список «від вас»
-   пропонував би найближчу пам'ятку за 500 км, а маршрут із базою
-   у Львові вів би через пів країни. */
-/* «Уся Україна» — окремий режим, а не ще одна область. За замовчуванням
+/* ═════════ РЕГІОН ═════════
+   Точка і маршрут належать історико-географічному регіону, а не
+   області: область — одиниця управління, і до спадщини стосунку не
+   має. Без цього поділу список «від вас» пропонував би найближчу
+   памʼятку за 500 км, а маршрут із базою у Львові вів би через
+   пів країни. Список і його межі — у шапці www/js/data.js. */
+/* «Уся Україна» — окремий режим, а не ще один регіон. За замовчуванням
    застосунок звужується до вашого регіону: інакше сортування «від вас»
    пропонувало б найближчу памʼятку за пʼятсот кілометрів. Але побачити
    все одразу треба вміти — і це свідомий вибір людини, а не стан,
@@ -230,23 +240,75 @@ const regPoints = () => isAll() ? POINTS.slice() : POINTS.filter(p => p.reg === 
 const regRoutes = () => isAll() ? ROUTES.slice() : ROUTES.filter(r => r.reg === REG());
 const regBadges = () => isAll() ? BADGES.slice() : BADGES.filter(b => !b.reg || b.reg === REG());
 
-/* Найближча область за прямою від центру. Груба міра, але для вибору
-   між областями точнішої не треба. */
+/* Порожній регіон — нормальний стан, а не поламка: набір починався
+   з двох регіонів, решта тринадцять чекають на контент. Але порожнім
+   він має бути видимо, а не мовчки. */
+const regFilled = k => POINTS.some(p => p.reg === k);
+const FILLED = () => Object.keys(REGIONS).filter(regFilled);
+
+/* Звідки міряються відстані в регіоні. Є база — від неї; немає —
+   від міста-якоря, координати якого лежать у самому регіоні. */
+const regOrigin = k => {
+  const r = REGIONS[k];
+  if (!r) return UA_CENTER;
+  const b = r.base && P(r.base);
+  return b || { lat: r.lat, lon: r.lon, n: r.anchor || r.n };
+};
+/* Коротка назва того, від чого рахуємо: «від Львова», а не «від
+   Площі Ринок, Львів». Раніше тут стояло слово «Львів» літералом —
+   правда рівно доти, доки регіон був один. */
+const originName = k => {
+  const o = regOrigin(k);
+  return String(o.n || '').split(',').pop().trim() || o.n;
+};
+
+/* Який регіон вважати вашим. Наївна відповідь — найближчий якір —
+   помиляється рівно там, де людина найчастіше й буває: біля меж.
+   Броди лежать за 75 км від Луцька і за 86 від Львова, тож за
+   якорями застосунок відправляв би мандрівника на Волинь, стоячи
+   під галицькою фортецею.
+
+   Тому спершу питаємо самі дані. Якщо поруч є точка набору, її
+   регіон — надійніший доказ, ніж відстань до чужого обласного
+   центру: памʼятка стоїть там, де стоїть, і межу перетнути не може.
+   Якір лишається запасним варіантом для місць, де точок ще немає.
+
+   Це все одно наближення, а не межі. Справжні контури регіонів —
+   окрема робота (docs/spec.md, розділ 6e).                        */
 function nearestRegion(pos) {
-  let best = null, bd = Infinity;
+  let ak = null, ad = Infinity;
   Object.keys(REGIONS).forEach(k => {
     const d = dist(pos, REGIONS[k]);
-    if (d < bd) { bd = d; best = k; }
+    if (d < ad) { ad = d; ak = k; }
   });
-  return best;
+  let pr = null, pd = Infinity;
+  POINTS.forEach(p => {
+    const d = dist(pos, p);
+    if (d < pd) { pd = d; pr = p.reg; }
+  });
+  return (pr && pd < ad) ? pr : ak;
 }
 
-/* Область обираємо самі, поки користувач не обрав руками: його вибір
-   лежить у S і переживає перезапуск, тож не перебиваємо його. */
+/* Регіон обираємо самі, поки користувач не обрав руками: його вибір
+   лежить у S і переживає перезапуск, тож не перебиваємо його.
+
+   Окремий випадок — коли людина відкрила застосунок там, де точок
+   ще немає. Мовчки показати порожню карту було б найгіршим із
+   можливих привітань, а мовчки перекинути її в чужий регіон —
+   неправдою про те, де вона є. Тому вмикаємо «всю Україну» і кажемо
+   прямо, який регіон впізнали і чому в ньому порожньо. */
 function autoRegion() {
   if (S.region || !Geo.pos) return false;
   const k = nearestRegion(Geo.pos);
-  if (!k || k === V.region) return false;
+  if (!k) return false;
+  if (!regFilled(k)) {
+    if (V.region === ALL && V.emptyHome === k) return false;
+    V.emptyHome = k;
+    V.region = ALL;
+    return true;
+  }
+  if (k === V.region) return false;
+  V.emptyHome = null;
   V.region = k;
   return true;
 }
@@ -254,6 +316,9 @@ function autoRegion() {
 function setRegion(k) {
   if ((k !== ALL && !REGIONS[k]) || k === V.region) return;
   V.region = k;
+  /* Вибір руками знімає пояснення про порожній домашній регіон:
+     людина вже побачила його й пішла далі. */
+  V.emptyHome = null;
   S.region = k;          /* вибір руками фіксуємо назавжди */
   V.q = ''; V.searching = false;
   V.theme = 'all'; V.mapTab = 'places';
@@ -290,7 +355,11 @@ function soloRoute(pid) {
   return {
     id: SOLO + pid, solo: true, reg: p.reg, size: 's',
     n: p.n, d: 'Поїздка до однієї точки',
-    from: REGIONS[p.reg].base, days: [[pid]], t: p.t.slice()
+    /* У регіоні може ще не бути бази — тоді поїздка починається від
+       самої точки. Це вироджений відрізок нульової довжини, але він
+       не падає, а щойно прийде GPS, трек однаково переміряється
+       від людини. */
+    from: (REGIONS[p.reg] && REGIONS[p.reg].base) || pid, days: [[pid]], t: p.t.slice()
   };
 }
 
@@ -360,7 +429,7 @@ function bearing(a, b) {
 
 /* Довжина дня: старт → точки по черзі → повернення до бази.
    Саме з поверненням, інакше «оптимізація» жене вас у дальній кут
-   області, звідки ввечері доведеться вертатись через усе. */
+   регіону, звідки ввечері доведеться вертатись через усе. */
 function dayLen(from, ids, base) {
   let km = 0, cur = from;
   for (const id of ids) { km += dist(cur, P(id)); cur = P(id); }
@@ -710,10 +779,10 @@ function sunTimes(lat, lon, at) {
 }
 
 /* Звідки беремо координати для сонця: є сигнал — від вас, немає —
-   від бази області. Різниця між заходом у Львові й Києві близько
+   від якоря регіону. Різниця між заходом у Львові й Києві близько
    двадцяти хвилин, тож база цілком годиться як запасний варіант. */
 function sunHere(at) {
-  const from = Geo.pos || (isAll() ? UA_CENTER : P(reg().base));
+  const from = Geo.pos || (isAll() ? UA_CENTER : regOrigin(REG()));
   return from ? sunTimes(from.lat, from.lon, at) : null;
 }
 const nightMode = () => NIGHT_MODES.indexOf(S.night) > -1 ? S.night : 'auto';
@@ -996,7 +1065,7 @@ function drawMarks(map, cfg) {
       const lat = g.reduce((a, p) => a + p.lat, 0) / g.length;
       const lon = g.reduce((a, p) => a + p.lon, 0) / g.length;
       /* Розмір росте від кількості, але повільно: інакше велике
-         скупчення закриває пів області. */
+         скупчення закриває пів регіону. */
       const size = Math.min(52, 30 + Math.round(Math.log2(g.length) * 7));
       const seen = g.filter(p => S.visits[p.id]).length;
       L.marker([lat, lon], {
@@ -1545,10 +1614,10 @@ const SNAPS = [0.30, 0.62, 0.92];
 
 /* Звідки міряємо відстані. Є сигнал — від вас; немає — від бази,
    і на екрані так і написано, щоб число не вводило в оману. */
-/* Без сигналу відстані рахуються від бази області. В режимі «вся
-   Україна» бази немає — беремо географічний центр країни, щоб
-   сортування хоч якось трималося, поки не прийде GPS. */
-const distFrom = () => Geo.pos || (isAll() ? UA_CENTER : P(reg().base));
+/* Без сигналу відстані рахуються від бази регіону, а якщо бази ще
+   немає — від міста-якоря. В режимі «вся Україна» беремо географічний
+   центр країни, щоб сортування хоч якось трималося, поки не прийде GPS. */
+const distFrom = () => Geo.pos || (isAll() ? UA_CENTER : regOrigin(REG()));
 
 /* Відстань до маршруту — до найближчої його точки, а не до першої:
    маршрут може починатись далеко, а проходити поруч. */
@@ -1667,11 +1736,27 @@ function mapModel() {
 const mapListHTML = m => {
   if (m.tab === 'routes') return m.routes.map(r => routeCard(r, m.from)).join('');
   if (m.places.length) return m.places.map(p => placeCard(p, m.from)).join('');
+
+  /* Регіон, у якому ще немає жодної точки, — не помилка й не «нічого
+     не знайдено за фільтром». Це чесний стан набору, який покриває
+     поки два регіони з пʼятнадцяти, і сказати треба саме це — разом
+     із виходом в один тап, щоб людина не лишилась на порожній карті. */
+  if (!V.q.trim() && !isAll() && !regFilled(REG()))
+    return '<div class="card" style="margin-top:10px">' +
+      '<h3 style="font-size:15px">' + esc(reg().n) + ': точок поки немає</h3>' +
+      '<p class="lede" style="margin:8px 0 0">Набір починався з Галичини й Наддніпрянщини — ' +
+      'наповнено ' + FILLED().length + ' ' +
+      plural(FILLED().length, 'регіон', 'регіони', 'регіонів') + ' із ' +
+      Object.keys(REGIONS).length + '. Решта на черзі. Там, куди доступ обмежений війною, ' +
+      'перевірити статуси на місці неможливо — а вигадувати їх ми не будемо.</p>' +
+      '<button class="btn ghost" style="margin-top:12px" data-goreg="' + ALL + '">' +
+      'Показати всю Україну</button></div>';
+
   if (!V.q.trim()) return '<p class="lede" style="margin:10px 2px">Немає точок за цим фільтром.</p>';
 
-  /* Пошук обмежений областю — і це створює пастку: людина шукає те,
-     що в застосунку є, але в сусідній області, і бачить порожньо.
-     Тому перевіряємо решту областей і пропонуємо перемкнутись. */
+  /* Пошук обмежений регіоном — і це створює пастку: людина шукає те,
+     що в застосунку є, але в сусідньому регіоні, і бачить порожньо.
+     Тому перевіряємо решту регіонів і пропонуємо перемкнутись. */
   /* В режимі «вся Україна» пропонувати нема чого: якщо не знайшлося
      тут, то не знайдеться ніде. */
   const elsewhere = isAll() ? [] : Object.keys(REGIONS).filter(k =>
@@ -1681,7 +1766,7 @@ const mapListHTML = m => {
     (V.theme !== 'all' ? '. Можливо, заважає увімкнений фільтр теми.' : '.') + '</p>' +
     (elsewhere.length
       ? '<div class="card" style="margin-top:4px"><p class="lede" style="margin:0 0 10px">' +
-        'Але знайшли в іншій області: ' +
+        'Але знайшли в іншому регіоні: ' +
         elsewhere.map(k => esc(REGIONS[k].n)).join(', ') + '.</p>' +
         elsewhere.map(k => '<button class="btn-sm" data-goreg="' + k + '">Перейти до ' +
           esc(REGIONS[k].n) + '</button>').join(' ') + '</div>'
@@ -1712,31 +1797,48 @@ function mapHead(m) {
   const legend = V.theme !== 'all' && THEME_COLOR[V.theme]
     ? '<div class="legend"><span style="--c:' + THEME_COLOR[V.theme][dk] + '"><i></i>' +
       esc(THEMES[V.theme]) + '</span></div>'
-    /* Показуємо тільки ті типи, що є в цій області: «Скельні»
-       на Київщині — це підпис до кольору, якого на карті немає. */
+    /* Показуємо тільки ті типи, що є в цьому регіоні: «Скельні»
+       на Наддніпрянщині — це підпис до кольору, якого на карті немає. */
     : '<div class="legend">' + Object.keys(KIND_COLOR)
         .filter(k => regPoints().some(p => p.kind === k))
         .map(k => '<span style="--c:' + KIND_COLOR[k][dk] + '"><i></i>' +
           esc(KIND_COLOR[k].n) + '</span>').join('') + '</div>';
 
+  /* Назва регіону обіцяє більше, ніж у наборі є: «Галичина» — це
+     три області, а точки поки з однієї. Мовчати про це означало б
+     дати людині шукати Кам’янець там, де його ще немає. */
+  const covers = !isAll() && reg().covers
+    ? '<p class="meta" style="margin:0 0 9px">' + esc(reg().covers) + '</p>' : '';
+
   return '<div class="between" style="margin-bottom:9px">' +
     '<button class="regsel" data-act="region">' + esc(reg().n) +
     '<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>' +
     '<span class="meta">' + pts(regPoints().length) + ' · ' +
-    rts(regRoutes().length) + '</span></div>' +
+    rts(regRoutes().length) + '</span></div>' + covers +
+    /* Людина відкрила застосунок там, де точок ще немає. Кажемо це
+       прямо, замість того щоб мовчки показати їй чужий регіон. */
+    (V.emptyHome && isAll() && REGIONS[V.emptyHome]
+      ? '<p class="meta" style="margin:0 0 9px;line-height:1.45">Ви, схоже, у регіоні ' +
+        esc(REGIONS[V.emptyHome].n) + ' — точок там поки немає, тому показано всю Україну.</p>'
+      : '') +
     legend +
     '<div class="mtabs" role="group" aria-label="Що показувати">' +
     '<button aria-pressed="' + (m.tab === 'places') + '" data-tab="places">Місця · ' +
     m.places.length + '</button>' +
     '<button aria-pressed="' + (m.tab === 'routes') + '" data-tab="routes">Маршрути · ' +
     m.routes.length + '</button></div>' +
+    /* Звідки міряємо — не літерал: у режимі всієї країни це центр,
+       у регіоні — його база або місто-якір. «Від Львова» стояло тут
+       словом і брехало щоразу, коли регіон був не Галичина. */
     '<div class="between"><span class="eyebrow">' +
-    (m.near ? (m.live ? 'від вас' : 'від Львова') : 'найпопулярніші') + '</span>' +
+    (m.near ? (m.live ? 'від вас' : 'від ' + esc(isAll() ? UA_CENTER.n : originName(REG())))
+            : 'найпопулярніші') + '</span>' +
     '<button class="btn-sm" data-act="sort">' +
     (m.near ? 'Найближчі' : 'Найпопулярніші') + ' ⇅</button></div>' +
     (m.near && !m.live
       ? '<p class="meta" id="nosignal" style="margin:8px 0 0;line-height:1.45">Сигналу ще немає, ' +
-        'тому відстані рахуються від Львова. З\u2019явиться — перерахуються.</p>'
+        'тому відстані рахуються від ' + esc(isAll() ? UA_CENTER.n : originName(REG())) +
+        '. З\u2019явиться — перерахуються.</p>'
       : '') +
     (m.notRec.length ? '<p class="meta" style="margin:8px 0 0;line-height:1.45">' +
       pts(m.notRec.length) + ' нижче рекомендованих: ' + recWhy(m.notRec) + '.</p>' : '');
@@ -1773,9 +1875,9 @@ function scrRoutes() {
     Object.keys(SIZES).map(k => '<button class="chip" aria-pressed="' + (V.size === k) +
       '" data-size="' + k + '">' + SIZES[k].n + ' · ' + SIZES[k].d + '</button>').join('') + '</div>' +
     /* Раніше тут стояло «будуються від Львова» — правда рівно доти,
-       доки область була одна. Тепер база у кожної своя, і називати
+       доки регіон був один. Тепер база у кожного своя, і називати
        чужу було б дрібною, але щоденною брехнею. */
-    '<p class="lede" style="margin:12px 0 6px">Маршрути будуються від бази області. ' +
+    '<p class="lede" style="margin:12px 0 6px">Маршрути будуються від бази регіону. ' +
     'Багатоденні розбиті на дні з поверненням до неї щовечора.</p>' +
     '<p class="meta" style="margin:0 0 14px;line-height:1.45">' + POP_NOTE + '</p>' +
     (list.map(r => {
@@ -2180,7 +2282,7 @@ function scrFinish() {
   const freshB = V.fresh || [];
   MOUNT = {
     /* У поїздці до однієї точки трек малювати нема від чого: виїхали
-       ви з дому, а не з бази області, і вдавати інше не будемо. */
+       ви з дому, а не з бази регіону, і вдавати інше не будемо. */
     points: flat(r).map(P),
     legs: r.solo ? []
       : planDays(r).map(d => endLeg(r, [P(r.from)].concat(d.filter(id => inTrack(r, id)).map(P))))
@@ -2626,7 +2728,7 @@ function roadMode(on) {
   render();
 }
 
-/* Вибір області руками. Автовибір за GPS зручний, але людина може
+/* Вибір регіону руками. Автовибір за GPS зручний, але людина може
    планувати поїздку туди, де її зараз немає, — і це нормальний сценарій. */
 function pickRegion() {
   /* Порожні регіони не ховаємо, а показуємо з нулем. Так видно
@@ -2635,8 +2737,12 @@ function pickRegion() {
   const keys = [ALL].concat(Object.keys(REGIONS));
   sheet({
     title: 'Що показувати на карті',
-    text: 'Регіон обирається сам за вашим положенням. Вибір руками його перекриває — ' +
-      'і запамʼятовується.',
+    /* Про сам поділ сказано тут, а не сховано в документації:
+       канонічного списку регіонів не існує, і людина, яка не знайшла
+       звичного їй Буджака чи Таврії, має розуміти чому. */
+    text: 'Поділ історико-географічний, а не адміністративний: областей тут немає. ' +
+      'Канонічного списку не існує — це робоче рішення продукту. Регіон обирається сам ' +
+      'за вашим положенням, вибір руками його перекриває і запамʼятовується.',
     options: keys.map(k => {
       const here = k === REG();
       if (k === ALL) return {
@@ -2646,7 +2752,8 @@ function pickRegion() {
       const n = POINTS.filter(p => p.reg === k).length;
       return {
         label: REGIONS[k].n,
-        hint: (n ? pts(n) + ' · ' + rts(ROUTES.filter(r => r.reg === k).length)
+        hint: (n ? pts(n) + ' · ' + rts(ROUTES.filter(r => r.reg === k).length) +
+                   (REGIONS[k].covers ? ' · ' + REGIONS[k].covers : '')
                  : 'поки порожньо') + (here ? ' · показується' : '')
       };
     }),
@@ -2971,8 +3078,8 @@ function checkBadges() {
   if (['sofia', 'lavra'].every(x => v.indexOf(x) > -1)) add('pechery');
   if (['divych', 'vytachiv'].every(x => v.indexOf(x) > -1)) add('kruchi');
   if (S.done.some(id => { const r = ROUTES.find(x => x.id === id); return r && r.size === 'l'; })) add('long');
-  /* «Уся область» — саме область, а не країна: раніше умова була
-     v.length >= POINTS.length, і з появою другої області нагорода
+  /* «Увесь регіон» — саме регіон, а не країна: раніше умова була
+     v.length >= POINTS.length, і з появою другого регіону нагорода
      стала недосяжною ні для кого. */
   Object.keys(REGIONS).forEach(k => {
     const pts = POINTS.filter(p => p.reg === k);
@@ -3238,8 +3345,8 @@ function onTap(e) {
 function boot() {
   const saved = Store.read();
   if (saved) S = Object.assign(S, saved);
-  /* Обрану руками область відновлюємо до першого рендера, інакше
-     екран блимне чужою областю. */
+  /* Обраний руками регіон відновлюємо до першого рендера, інакше
+     екран блимне чужим регіоном. */
   if (S.region === ALL || (S.region && REGIONS[S.region])) V.region = S.region;
 
   document.addEventListener('click', onTap);
@@ -3300,7 +3407,7 @@ function boot() {
     }
 
     if (V.screen === 'map') {
-      /* Перший фікс: обираємо область, ставимо карту на вас
+      /* Перший фікс: обираємо регіон, ставимо карту на вас
          і перемальовуємо — змінюється і склад списку, і відстані. */
       if (autoRegion()) { V.centered = false; render(); return; }
       if (stateChanged) { render(); return; }
