@@ -201,19 +201,21 @@ await click('[data-open="olesko"]');
 (await text('.bar h1')) === 'Пам’ятка' ? ok('картка пам’ятки відкрилась') : bad('картка не відкрилась');
 
 const gateShown = await $('.gate');
-const pickerShown = await $('[data-star]');
+const pickerShown = await $('[data-vote]');
 gateShown && !pickerShown
-  ? ok('без відвідин: зорепад закритий, показано замок')
+  ? ok('без відвідин: вердикт закритий, показано замок')
   : bad('гейт не працює', `gate=${gateShown} picker=${pickerShown}`);
 await shot('02-point-gate');
 
 /* Спроба обійти гейт напряму, як це зробив би скрипт. */
 const bypass = await evaluate(`
-  saveReview('olesko');
-  return { rated: !!S.ratings['olesko'], toast: document.querySelector('.toast')?.innerText || null };
+  V.vote = { v: 1, reason: '' };
+  saveVote('olesko');
+  V.vote = null;
+  return { rated: !!S.votes['olesko'], toast: document.querySelector('.toast')?.innerText || null };
 `);
 !bypass.rated
-  ? ok('прямий виклик saveReview відхилено: ' + JSON.stringify(bypass.toast))
+  ? ok('прямий виклик saveVote відхилено: ' + JSON.stringify(bypass.toast))
   : bad('гейт обходиться викликом saveReview');
 
 /* ── 3. Маршрути ─────────────────────────────────────────────────── */
@@ -286,7 +288,7 @@ const near = await evaluate(`return {
   screen: V.screen,
   visit: S.visits[${JSON.stringify(aim.id)}] || null,
   gate: !!document.querySelector('.gate'),
-  picker: !!document.querySelector('[data-star]')
+  picker: !!document.querySelector('[data-vote]')
 }`);
 near.screen === 'point' && near.visit
   ? ok('у радіусі 300 м картка відкрилась сама: ' + aim.id)
@@ -295,18 +297,59 @@ near.visit && near.visit.by === 'gps'
   ? ok('відвідини позначені як підтверджені по GPS')
   : bad('verified_by не gps: ' + JSON.stringify(near.visit));
 !near.gate && near.picker
-  ? ok('після прибуття зорепад відкрився')
+  ? ok('після прибуття вердикт відкрився')
   : bad('гейт не відкрився після відвідин');
 await shot('05-point-unlocked');
 
-/* ── 5. Оцінка ───────────────────────────────────────────────────── */
-await click('[data-star="5"]');
+/* ── 5. Вердикт ──────────────────────────────────────────────────────
+   Плюс, потім мінус без причини, потім мінус із причиною. Уся цінність
+   заміни зірок тримається на тому, що мінус без причини не приймається:
+   голий мінус — це і є замовчаний мінус. */
+await click('[data-vote="1"]');
 await evaluate(`document.getElementById('rev').value = 'Найкращий вигляд з валів на заході сонця.'`);
 await click('[data-act="review"]');
-const rated = await evaluate(`return S.ratings[${JSON.stringify(aim.id)}] || null`);
-rated && rated.stars === 5 && rated.by === 'gps' && rated.text.length > 10
-  ? ok('оцінка збережена з visit-джерелом: ' + rated.stars + '★ / ' + rated.by)
-  : bad('оцінка не збереглась як слід: ' + JSON.stringify(rated));
+const rated = await evaluate(`return S.votes[${JSON.stringify(aim.id)}] || null`);
+rated && rated.v === 1 && rated.by === 'gps' && rated.text.length > 10
+  ? ok('вердикт збережено з visit-джерелом: варте / ' + rated.by)
+  : bad('вердикт не зберігся як слід: ' + JSON.stringify(rated));
+
+await click('[data-act="vote-edit"]');
+await sleep(260);
+await click('[data-vote="-1"]');
+await sleep(260);
+const minus = await evaluate(`return {
+  reasons: document.querySelectorAll('[data-reason]').length,
+  saveOff: !!document.querySelector('[data-act="review"]')?.disabled
+}`);
+minus.reasons === 6
+  ? ok('на мінусі зʼявився список причин: ' + minus.reasons)
+  : bad('причин на вибір: ' + minus.reasons);
+minus.saveOff
+  ? ok('мінус без причини зберегти не можна')
+  : bad('кнопка збереження активна при мінусі без причини');
+const noReason = await evaluate(`
+  V.vote = { v: -1, reason: '' };
+  saveVote(${JSON.stringify(aim.id)});
+  return { v: (S.votes[${JSON.stringify(aim.id)}] || {}).v, toast: document.querySelector('.toast')?.innerText || '' };
+`);
+noReason.v === 1 && /причин/i.test(noReason.toast)
+  ? ok('прямий виклик із мінусом без причини теж відхилено')
+  : bad('мінус без причини пройшов повз: ' + JSON.stringify(noReason));
+await click('[data-reason="road"]');
+await sleep(220);
+await click('[data-act="review"]');
+await sleep(320);
+const down = await evaluate(`return S.votes[${JSON.stringify(aim.id)}] || null`);
+down && down.v === -1 && down.reason === 'road'
+  ? ok('мінус збережено разом із причиною: ' + down.reason)
+  : bad('мінус із причиною не зберігся: ' + JSON.stringify(down));
+/* Повертаємо плюс, щоб решта тесту йшла по звичному сценарію. */
+await click('[data-act="vote-edit"]');
+await sleep(220);
+await click('[data-vote="1"]');
+await sleep(200);
+await click('[data-act="review"]');
+await sleep(300);
 (await evaluate(`return S.badges.includes('first')`))
   ? ok('нагорода «Перший камінь» відкрилась')
   : bad('нагорода за першу точку не відкрилась');
@@ -377,11 +420,11 @@ await goTo(BASE + '/');
 await sleep(700);
 const after = await evaluate(`return {
   visits: Object.keys(S.visits).length,
-  ratings: Object.keys(S.ratings).length,
+  votes: Object.keys(S.votes).length,
   badges: S.badges.length,
   done: S.done.length
 }`);
-after.visits === 3 && after.ratings === 1 && after.done === 1
+after.visits === 3 && after.votes === 1 && after.done === 1
   ? ok('після перезапуску прогрес на місці: ' + JSON.stringify(after))
   : bad('прогрес втрачено при перезапуску: ' + JSON.stringify(after));
 
@@ -987,7 +1030,7 @@ await sleep(1400);
 const came = await evaluate(`return {
   screen: V.screen, visit: !!S.visits.pidkamin,
   gate: !!document.querySelector('.gate'),
-  picker: !!document.querySelector('[data-star]')
+  picker: !!document.querySelector('[data-vote]')
 }`);
 came.screen === 'point' && came.visit
   ? ok('прибуття зарахувалось, картка відкрилась сама')
@@ -1126,7 +1169,7 @@ me.id
 me.stored === 'Бандура'
   ? ok('кабінет ліг на пристрій, а не лише в памʼять сторінки')
   : bad('профіль не записався в сховище: «' + me.stored + '»');
-me.v === 4 ? ok('схема даних піднялась до v4') : bad('версія схеми: ' + me.v);
+me.v === 5 ? ok('схема даних піднялась до v5') : bad('версія схеми: ' + me.v);
 await shot('13b-profile');
 
 /* ── 16. Версія і кеші ───────────────────────────────────────────────

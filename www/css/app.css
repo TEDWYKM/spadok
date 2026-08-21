@@ -131,13 +131,34 @@ body.darkmap .mk.on i::after{background:#0B1114;box-shadow:0 0 0 1px rgba(255,25
 .btn:disabled{opacity:.4}
 .btn-sm{padding:10px 16px;border:1px solid var(--line-2);border-radius:var(--r-pill);font-size:12px}
 
-.stars{display:flex;gap:5px}
-.star{width:30px;height:30px;display:grid;place-items:center}
-.star svg{width:25px;height:25px}
-.star svg path{fill:none;stroke:var(--ink-3);stroke-width:1.4;stroke-linejoin:round}
-.star.on svg path{fill:var(--gold);stroke:var(--gold)}
-.stars.sm .star{width:15px;height:15px}
-.stars.sm .star svg{width:13px;height:13px}
+/* ── Вердикт ──────────────────────────────────────────────────────────
+   Замість пʼяти зірок — «варте» / «не варте». Мінус мусить виглядати
+   рівноцінно плюсу, а не бути дрібним сірим виходом: інакше люди
+   мовчки закривають картку замість того, щоб сказати, що не так. */
+.vtag{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;
+  padding:6px 13px;border-radius:var(--r-pill);border:1.5px solid;white-space:nowrap}
+.vtag svg{width:15px;height:15px;flex:none;fill:currentColor}
+.vtag.up{color:var(--verd-dk);border-color:rgba(46,125,108,.5);background:rgba(46,125,108,.09)}
+.vtag.down{color:var(--copper);border-color:rgba(168,84,43,.45);background:rgba(168,84,43,.08)}
+.vtag.sm{font-size:11.5px;padding:4px 10px;gap:5px}
+.vtag.sm svg{width:12px;height:12px}
+
+.vbtns{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.vbtn{padding:13px 8px;border:1.5px solid var(--line-2);border-radius:var(--r-lg);
+  display:grid;place-items:center;background:var(--sheet)}
+.vbtn.on.up{border-color:var(--verd-dk);background:rgba(46,125,108,.09)}
+.vbtn.on.down{border-color:var(--copper);background:rgba(168,84,43,.08)}
+.vbtns.off{opacity:.45;pointer-events:none}
+
+.reasons{display:grid;gap:7px;margin-top:9px}
+.rsn{text-align:left;border:1px solid var(--line-2);border-radius:var(--r-md);padding:10px 13px;
+  background:var(--sheet)}
+.rsn[aria-pressed="true"]{border-color:var(--copper);background:rgba(168,84,43,.07)}
+.rsn b{display:block;font-size:12.5px}
+.rsn span{font-family:"IBM Plex Mono",monospace;font-size:10px;color:var(--ink-3);
+  display:block;margin-top:2px;line-height:1.35}
+.vsaved{background:rgba(46,125,108,.05)}
+.vote{background:rgba(46,125,108,.05)}
 
 .stamp{border:1.5px solid var(--verd-dk);color:var(--verd-dk);border-radius:var(--r-pill);padding:6px 12px;
   font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
@@ -232,7 +253,6 @@ body.darkmap .mk.on i::after{background:#0B1114;box-shadow:0 0 0 1px rgba(255,25
   display:grid;place-items:center;flex:none;background:var(--sheet)}
 .gate .lock svg{stroke:var(--ink-3);fill:none;stroke-width:1.6}
 .gate b{font-size:12.5px;display:block;margin-bottom:3px}
-.stars.off .star svg path{stroke:var(--line-2)}
 
 /* Смуга геолокації: відстань до цілі, точність, стан дозволу. */
 .geo{display:flex;align-items:center;gap:10px;border:1px solid var(--line-2);border-radius:var(--r-md);
@@ -466,10 +486,17 @@ body.mapv .body{padding:0;overflow:hidden;display:flex}
   display:grid;place-items:center}
 .mkav svg{width:16px;height:16px;fill:#fff}
 .mkav img{width:100%;height:100%;border-radius:inherit;object-fit:cover;display:block}
-.mkchip b{font-family:"Unbounded",sans-serif;font-size:10.5px;color:var(--ink);line-height:1}
+/* У пігулці над позначкою тепер не вигадане число, а ваш вердикт —
+   або нічого, якщо ви тут не були. */
+.mkchip b{font-family:"Unbounded",sans-serif;font-size:11px;color:var(--ink);line-height:1}
+.mkchip b.up{color:var(--verd-dk)}
+.mkchip b.down{color:var(--copper)}
+.mkchip:has(b:only-child){padding-left:6px}
 /* Відвідана точка: рейтинг стає власним, і це має бути видно. */
 .mk.on .mkchip b{color:var(--verd-dk)}
 body.darkmap .mkchip,
 body.darkmap .mkchip::after{background:#141D22}
 body.darkmap .mkchip b{color:#EAF2F4}
+body.darkmap .mkchip b.up{color:#3FD9B6}
+body.darkmap .mkchip b.down{color:#E9A57F}
 body.darkmap .mk.on .mkchip b{color:#3FD9B6}

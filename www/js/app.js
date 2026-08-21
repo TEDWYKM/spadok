@@ -4,7 +4,7 @@
 
    Що змінилося порівняно з прототипом spadok-mvp-v2.html:
      1. Оцінка справді заблокована до підтвердженої відвідини —
-        і в інтерфейсі, і в saveReview(). Правило 1 зі спеки.
+        і в інтерфейсі, і в saveVote(). Правило 1 зі спеки.
      2. Прогрес зберігається (localStorage; якщо недоступний —
         пам'ять сесії). Раніше window.storage поза артефактом
         Claude тихо падав у catch і прогрес зникав.
@@ -106,10 +106,32 @@ const Store = (function () {
      Чесніше почати вести журнал із цього оновлення й сказати про це
      на екрані — штампи за минуле нікуди не діваються. */
   function upgrade(s) {
-    if (!s || s.v >= 4) return s;
-    s.v = 4;
-    s.me = null;      /* створиться при першому відкритті кабінету */
-    s.trips = [];
+    if (!s) return s;
+    if (s.v < 4) {
+      s.v = 4;
+      s.me = null;      /* створиться при першому відкритті кабінету */
+      s.trips = [];
+    }
+    /* v4 → v5: пʼять зірок замінено бінарним вердиктом.
+
+       4–5 стають «варте», 1–2 — «не варте». Трійку не переносимо:
+       у бінарному вердикті їй немає чесного місця, а вигадати його
+       означало б сказати за людину те, чого вона не казала. Текст
+       у такому разі лишається, а вердикт людина поставить сама. */
+    if (s.v < 5) {
+      s.v = 5;
+      s.votes = {};
+      Object.keys(s.ratings || {}).forEach(id => {
+        const r = s.ratings[id] || {};
+        const v = r.stars >= 4 ? 1 : r.stars <= 2 ? -1 : 0;
+        if (v || r.text)
+          s.votes[id] = {
+            v, reason: '', text: r.text || '',
+            at: r.at || Date.now(), by: r.by || 'manual', from: 'stars'
+          };
+      });
+      delete s.ratings;
+    }
     return s;
   }
 })();
@@ -118,13 +140,13 @@ const Store = (function () {
    і час, тож коли зʼявиться вхід на сервер, їх можна буде
    синхронізувати, а не переписувати. */
 let S = {
-  v: 4, me: null, trips: [],
-  visits: {}, ratings: {}, done: [], badges: [], offline: [], region: null
+  v: 5, me: null, trips: [],
+  visits: {}, votes: {}, done: [], badges: [], offline: [], region: null
 };
 let V = {
   screen: 'map', theme: 'all', sort: 'near', size: 'all',
   route: null, idx: 0, t0: 0, sel: null, from: 'map',
-  media: 'photo', draftStars: 0, tiles: 'osm',
+  media: 'photo', tiles: 'osm',
   fresh: [], sheet: null, toast: null, swUpdate: false,
   /* Дорожній режим: повноекранна карта, що їде за користувачем.
      plan — порядок точок саме цієї подорожі, перебудований під
@@ -144,7 +166,9 @@ let V = {
   /* Кабінет: відкрита вкладка і чернетка профілю під час редагування.
      Чернетка потрібна, бо шторка перемальовується на кожен вибір
      знака — без неї набране імʼя губилося б. */
-  cab: 'trips', me: null
+  cab: 'trips', me: null,
+  /* Чернетка вердикту: {v, reason}. null — показуємо збережений. */
+  vote: null
 };
 let MOUNT = null, LMAP = null, LEAFLET = null, MEMARK = null, MEACC = null, MOUNTBOUNDS = null;
 let MARKS = null, MOUNTCFG = null;
@@ -892,11 +916,15 @@ function drawMarks(map, cfg) {
 
     const p = g[0];
     const on = !!S.visits[p.id], now = cfg.now === p.id;
-    const my = S.ratings[p.id];
-    const rate = my ? my.stars : p.rate;
+    /* Раніше тут стояв рейтинг із демо-даних. Числа спільної думки
+       поки не існує, а малювати неіснуюче над справжньою картою —
+       найгірше місце для цього. Лишається аватар, а поруч зʼявляється
+       ваш власний вердикт, якщо ви тут були і його поставили. */
+    const my = myVote(p.id);
     const chip = avatars
       ? '<span class="mkchip"><span class="mkav">' + avatarSVG(p) + '</span>' +
-        '<b>' + rate.toFixed(1).replace('.', ',') + '</b></span>'
+        (my && my.v ? '<b class="' + (my.v > 0 ? 'up' : 'down') + '">' +
+          (my.v > 0 ? '\u2713' : '\u2717') + '</b>' : '') + '</span>'
       : '';
     L.marker([p.lat, p.lon], {
       icon: L.divIcon({
@@ -1308,25 +1336,48 @@ function centerOnMe(map, zoom) {
   }
 }
 
+/* ═════════ ВЕРДИКТ ═════════
+   Замість пʼяти зірок — «варте» або «не варте».
+
+   Причина не в моді на лайки. Пʼятизіркові оцінки збиваються
+   в J-подібний розподіл: майже всі ставлять 5, зрідка 1, а середні
+   осідають між 4.2 і 4.6, і шкала перестає розрізняти. Бінарний
+   вердикт розрізняє.
+
+   Але голий мінус і є замовчаний мінус: він каже, що щось не так,
+   і не каже що. Тому на мінусі причина обовʼязкова — і список
+   короткий та конкретний, під те, що справді буває на памʼятці.
+   Так downvote перестає бути анонімним невдоволенням і стає
+   сигналом, з яким можна щось зробити.
+
+   Спільна думка тут не показується й показуватись не може: поки
+   голоси не стали спільними, її просто немає. Проєкт того, як вона
+   рахуватиметься (нижня межа інтервалу Вілсона, а не «плюси мінус
+   мінуси»), лежить у docs/server.md.                              */
+const VOTE_REASONS = {
+  closed:  { n: 'Зачинено, не пускають', d: 'статус точки потребує перевірки' },
+  road:    { n: 'Дорога вбита',          d: 'доїхати можна, але не всім і не на всьому' },
+  nothing: { n: 'Майже нічого не збереглося', d: 'на місці менше, ніж обіцяв опис' },
+  price:   { n: 'Платно й не варте того', d: 'ціна не відповідає побаченому' },
+  danger:  { n: 'Небезпечно',            d: 'найвищий пріоритет перевірки' },
+  wrong:   { n: 'Опис не відповідає дійсності', d: 'текст або дані треба виправити' }
+};
+
+const myVote = id => S.votes[id] || null;
+const votedCount = () => Object.keys(S.votes).filter(k => S.votes[k].v).length;
+
+/* Позначка вердикту — там, де раніше стояли зірки. */
+function verdictTag(v, cls) {
+  if (!v) return '<span class="tag stale">без вердикту</span>';
+  return '<span class="vtag ' + (v > 0 ? 'up' : 'down') + ' ' + (cls || '') + '">' +
+    '<svg viewBox="0 0 24 24">' +
+    (v > 0
+      ? '<path d="M7 21V9.5l5-7 1.2.9-.9 4.9H20l-2.6 12.7z"/>'
+      : '<path d="M17 3v11.5l-5 7-1.2-.9.9-4.9H4l2.6-12.7z"/>') +
+    '</svg>' + (v > 0 ? 'варте' : 'не варте') + '</span>';
+}
+
 /* ═════════ ДРІБНІ БЛОКИ ІНТЕРФЕЙСУ ═════════ */
-const STAR_PATH = 'M12 2.6l2.9 6 6.5.9-4.7 4.6 1.1 6.5L12 17.5 6.2 20.6l1.1-6.5L2.6 9.5l6.5-.9z';
-
-function stars(v, cls) {
-  let h = '<div class="stars ' + (cls || '') + '">';
-  for (let i = 1; i <= 5; i++)
-    h += '<span class="star ' + (i <= v ? 'on' : '') + '"><svg viewBox="0 0 24 24"><path d="' +
-      STAR_PATH + '"/></svg></span>';
-  return h + '</div>';
-}
-
-function starPicker(cur) {
-  let h = '<div class="stars" role="radiogroup" aria-label="Ваша оцінка">';
-  for (let i = 1; i <= 5; i++)
-    h += '<button class="star ' + (i <= cur ? 'on' : '') + '" role="radio" aria-checked="' +
-      (i === cur) + '" aria-label="' + i + ' з 5" data-star="' + i + '">' +
-      '<svg viewBox="0 0 24 24"><path d="' + STAR_PATH + '"/></svg></button>';
-  return h + '</div>';
-}
 
 const ST_LABEL = { ok: 'доступно', warn: 'обмежено', closed: 'закрито', occupied: 'під окупацією' };
 function stTag(p) {
@@ -1441,14 +1492,16 @@ function distTag(km) {
 }
 
 function placeCard(p, from) {
-  const my = S.ratings[p.id];
-  const shown = my ? my.stars : p.rate;
+  const my = myVote(p.id);
   const vis = S.visits[p.id];
   return '<div class="card" data-open="' + p.id + '">' +
     '<div class="between"><h3>' + esc(p.n) + '</h3>' + distTag(dist(from, p)) + '</div>' +
     '<p class="lede" style="margin:7px 0 9px">' + esc(p.s) + '</p>' +
-    '<div class="between"><div class="row">' + stars(Math.round(shown), 'sm') +
-    '<span class="meta">' + shown.toFixed(1) + (my ? ' · ваша' : '') + '</span></div>' +
+    /* Тип обʼєкта — те саме, чим пофарбована позначка на карті:
+       читається з першого погляду і нічого не вигадує. */
+    '<div class="between"><div class="row" style="gap:7px">' +
+    '<span class="meta">' + esc(KIND_COLOR[p.kind].n) + '</span>' +
+    (my && my.v ? verdictTag(my.v, 'sm') : '') + '</div>' +
     '<span class="row" style="gap:5px">' + stTag(p) + '</span></div>' +
     (vis ? '<div style="margin-top:10px"><span class="stamp' + (vis.by === 'manual' ? ' manual' : '') +
       '">Відвідано · ' + stamp(vis.at) + '</span></div>' : '') +
@@ -1826,7 +1879,7 @@ function cardView(r, st, cur, d, origin) {
 function scrPoint() {
   const p = P(V.sel);
   const vis = S.visits[p.id];
-  const my = S.ratings[p.id];
+  const my = myVote(p.id);
   const r = R();
   /* Три різні стани, і кнопка внизу в кожному інша:
        inJ    — щойно приїхали сюди в межах подорожі, далі «Продовжити»;
@@ -1851,10 +1904,8 @@ function scrPoint() {
     (vis ? '<div style="margin:16px 0"><span class="stamp' + (vis.by === 'manual' ? ' manual' : '') +
       '">Відвідано · ' + stamp(vis.at) + ' · ' +
       (vis.by === 'gps' ? 'GPS' : 'вручну') + '</span></div>' : '') +
-    '<div class="rule"></div><span class="eyebrow">Оцінка пам’ятки</span>' +
-    '<div class="row" style="margin:9px 0 12px">' + stars(Math.round(p.rate), 'sm') +
-    '<span class="meta">' + p.rate.toFixed(1) + ' · ' + p.cnt + ' оцінок</span></div>' +
-    ratingBlock(p, vis, my) +
+    '<div class="rule"></div><span class="eyebrow">Ваш вердикт</span>' +
+    voteBlock(p, vis, my) +
     '<div class="locked" style="margin-top:12px"><span style="font-size:19px;opacity:.4">♪</span>' +
     '<div><b style="font-size:12.5px">Аудіорозповідь, 14 хв</b>' +
     '<p class="meta" style="margin:3px 0 0">Доступно у платній версії</p></div></div>' +
@@ -1872,9 +1923,9 @@ function scrPoint() {
 }
 
 /* ── Правило 1 зі спеки, доведене до інтерфейсу ─────────────────────
-   Без підтвердженої відвідини блок оцінки закритий, а не просто
-   підписаний текстом «оцінку можна залишити лише з місця».         */
-function ratingBlock(p, vis, my) {
+   Без підтвердженої відвідини блок вердикту закритий, а не просто
+   підписаний текстом «оцінити можна лише з місця».                */
+function voteBlock(p, vis, my) {
   if (!vis) {
     const m = Geo.metersTo(p);
     const hint = m == null
@@ -1885,23 +1936,75 @@ function ratingBlock(p, vis, my) {
     return '<div class="gate"><div class="row"><span class="lock">' +
       '<svg width="15" height="15" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/>' +
       '<path d="M8 10V7a4 4 0 018 0v3"/></svg></span>' +
-      '<div><b>Оцінка відкриється на місці</b>' +
+      '<div><b>Вердикт відкриється на місці</b>' +
       '<p class="meta" style="margin:3px 0 0;line-height:1.45">' + hint + '</p></div></div>' +
-      '<div style="margin:12px 0 0;opacity:.5">' + stars(0, 'off') + '</div>' +
-      '<p class="meta" style="margin:9px 0 0;line-height:1.45">Так рейтинг лишається чесним: ' +
-      'оцінити пам’ятку може лише той, хто до неї доїхав.</p></div>';
+      '<div class="vbtns off" style="margin-top:12px">' +
+      '<span class="vbtn up">' + verdictTag(1) + '</span>' +
+      '<span class="vbtn down">' + verdictTag(-1) + '</span></div>' +
+      '<p class="meta" style="margin:10px 0 0;line-height:1.45">Так оцінки лишаються чесними: ' +
+      'сказати «варте» або «не варте» може лише той, хто доїхав.</p></div>';
   }
-  return '<div class="card" style="background:rgba(46,125,108,.05)">' +
-    '<span class="eyebrow">' + (my ? 'Ваша оцінка' : 'Оцініть від 1 до 5') + '</span>' +
-    '<div style="margin:9px 0 11px">' + starPicker(V.draftStars || (my ? my.stars : 0)) + '</div>' +
-    '<textarea class="field" id="rev" rows="2" ' +
+
+  /* Збережений вердикт показуємо як факт; правити його можна, але
+     для цього треба натиснути — щоб не змінити випадково те,
+     що людина вже сказала. */
+  const editing = !!V.vote || !my || !my.v;
+  const d = V.vote || { v: my ? my.v : 0, reason: my ? my.reason : '' };
+
+  if (!editing) {
+    return '<div class="card vsaved">' +
+      '<div class="between">' + verdictTag(my.v) +
+      '<span class="meta">' + dmy(my.at) + '</span></div>' +
+      (my.v < 0 && VOTE_REASONS[my.reason]
+        ? '<p class="meta" style="margin:9px 0 0;line-height:1.45">' +
+          esc(VOTE_REASONS[my.reason].n) + '. ' + whatNext(my.reason) + '</p>'
+        : '') +
+      (my.text ? '<p class="lede" style="margin:9px 0 0;font-size:12.5px">«' +
+        esc(my.text) + '»</p>' : '') +
+      (my.from === 'stars'
+        ? '<p class="meta" style="margin:9px 0 0">Перенесено зі старої пʼятизіркової шкали.</p>' : '') +
+      '<button class="btn-sm" style="margin-top:11px;width:100%" data-act="vote-edit">' +
+      'Змінити вердикт</button></div>';
+  }
+
+  return '<div class="card vote">' +
+    '<div class="vbtns">' +
+    '<button class="vbtn up' + (d.v > 0 ? ' on' : '') + '" data-vote="1" ' +
+    'aria-pressed="' + (d.v > 0) + '">' + verdictTag(1) + '</button>' +
+    '<button class="vbtn down' + (d.v < 0 ? ' on' : '') + '" data-vote="-1" ' +
+    'aria-pressed="' + (d.v < 0) + '">' + verdictTag(-1) + '</button></div>' +
+
+    /* Мінус без причини — той самий замовчаний мінус: він каже, що щось
+       не так, і не каже що. Тому список і обовʼязковий вибір. */
+    (d.v < 0
+      ? '<div style="margin-top:13px"><span class="eyebrow">Що саме не так</span>' +
+        '<div class="reasons">' + Object.keys(VOTE_REASONS).map(k =>
+          '<button class="rsn' + (d.reason === k ? ' on' : '') + '" data-reason="' + k + '" ' +
+          'aria-pressed="' + (d.reason === k) + '"><b>' + VOTE_REASONS[k].n + '</b>' +
+          '<span>' + VOTE_REASONS[k].d + '</span></button>').join('') + '</div></div>'
+      : '') +
+
+    '<textarea class="field" id="rev" rows="2" style="margin-top:12px" ' +
     'placeholder="Кілька слів для інших мандрівників — не обов’язково">' +
     esc(my ? my.text : '') + '</textarea>' +
+
     '<button class="btn-sm" style="margin-top:9px;width:100%" data-act="review"' +
-    (!(V.draftStars || my) ? ' disabled' : '') + '>' +
-    (my ? 'Оновити відгук' : 'Залишити відгук') + '</button>' +
-    '<p class="meta" style="margin:9px 0 0">Відвідини підтверджені ' +
-    (vis.by === 'gps' ? 'по GPS' : 'вручну') + ' — оцінка зарахується.</p></div>';
+    (!d.v || (d.v < 0 && !d.reason) ? ' disabled' : '') + '>' +
+    (my && my.v ? 'Оновити вердикт' : 'Зберегти вердикт') + '</button>' +
+
+    '<p class="meta" style="margin:9px 0 0;line-height:1.45">Відвідини підтверджені ' +
+    (vis.by === 'gps' ? 'по GPS' : 'вручну') + ' — вердикт зарахується. ' +
+    'Спільної оцінки місця поки немає: голоси стануть спільними разом із сервером.</p></div>';
+}
+
+/* Що станеться з причиною. Поки все локальне — нічого, і про це
+   сказано прямо: обіцяти дію, якої немає, гірше за мовчання. */
+function whatNext(reason) {
+  if (reason === 'danger')
+    return 'Коли голоси стануть спільними, така позначка піде в перевірку першою.';
+  if (reason === 'closed' || reason === 'wrong')
+    return 'Коли голоси стануть спільними, кілька таких поспіль піднімуть точку на перевірку статусу.';
+  return 'Поки голоси не стали спільними, ця причина лишається у вашому кабінеті.';
 }
 
 function scrFinish() {
@@ -1949,7 +2052,7 @@ function scrFinish() {
 function scrProfile() {
   const me = ensureMe();
   const vis = Object.keys(S.visits);
-  const rated = Object.keys(S.ratings).length;
+  const rated = votedCount();
   const stale = POINTS.filter(p => !fresh(p) && !expired(p)).length;
   const gone = POINTS.filter(p => expired(p)).length;
   const walked = S.trips.filter(t => t.end && !t.cut).length;
@@ -2053,11 +2156,11 @@ function cabStamps() {
   return '<p class="meta" style="margin:12px 0 0">' + byGps + ' підтверджено по GPS, ' +
     (vis.length - byGps) + ' вручну</p><div style="margin-top:10px">' +
     vis.map(v => {
-      const p = P(v[0]), my = S.ratings[v[0]];
+      const p = P(v[0]), my = myVote(v[0]);
       return '<div class="card" data-open="' + v[0] + '"><div class="between">' +
         '<b style="font-size:13.5px">' + esc(p.n) + '</b>' +
-        (my ? '<div class="row">' + stars(my.stars, 'sm') + '</div>'
-          : '<span class="meta">без оцінки</span>') + '</div>' +
+        (my && my.v ? verdictTag(my.v, 'sm')
+          : '<span class="meta">без вердикту</span>') + '</div>' +
         '<div style="margin-top:9px"><span class="stamp' + (v[1].by === 'manual' ? ' manual' : '') +
         '">' + stamp(v[1].at) + ' · ' + (v[1].by === 'gps' ? 'GPS' : 'вручну') + '</span></div>' +
         (my && my.text ? '<p class="lede" style="margin:9px 0 0;font-size:12.5px">«' +
@@ -2202,7 +2305,7 @@ function openPoint(id, from) {
   V.sel = id;
   V.from = from || V.screen;
   V.media = 'photo';
-  V.draftStars = 0;
+  V.vote = null;      /* чужа чернетка на новій точці — чужий вердикт */
   go('point');
 }
 
@@ -2474,28 +2577,36 @@ function continueJourney() {
   }
 }
 
-function saveReview(id) {
-  /* Гейт, а не підпис. Спека, правило 1. */
+/* Зберегти вердикт. Гейт стоїть двічі — тут і в інтерфейсі, бо
+   інтерфейс обходиться прямим викликом. Спека, правило 1. */
+function saveVote(id) {
   const vis = S.visits[id];
   if (!vis) {
-    toast('Оцінка недоступна', 'Спершу треба підтвердити відвідини цієї точки.');
+    toast('Вердикт недоступний', 'Спершу треба підтвердити відвідини цієї точки.');
     return;
   }
-  const cur = S.ratings[id];
-  const n = V.draftStars || (cur ? cur.stars : 0);
-  if (!n) return;
+  const cur = myVote(id);
+  const d = V.vote || { v: cur ? cur.v : 0, reason: cur ? cur.reason : '' };
+  if (!d.v) return;
+  if (d.v < 0 && !d.reason) {
+    toast('Скажіть, що саме не так', 'Мінус без причини нікому не допоможе — оберіть зі списку.');
+    return;
+  }
   const t = document.getElementById('rev');
-  S.ratings[id] = {
-    stars: n,
+  S.votes[id] = {
+    v: d.v,
+    reason: d.v < 0 ? d.reason : '',
     text: t && t.value.trim() ? t.value.trim() : '',
     at: Date.now(),
     by: vis.by
   };
-  V.draftStars = 0;
+  V.vote = null;
   save();
   const gained = checkBadges();
   render();
-  toast('Відгук збережено', gained.length ? 'Відкрито нагороду.' : '');
+  toast(d.v > 0 ? 'Вердикт збережено' : 'Записано, і це важливо',
+    gained.length ? 'Відкрито нагороду.'
+      : d.v < 0 ? 'Причина лишається з вашим голосом, а не зникає в мінусі.' : '');
 }
 
 function report() {
@@ -2547,8 +2658,8 @@ function resetProgress() {
     onPick: () => {
       const me = S.me;
       S = {
-        v: 4, me, trips: [],
-        visits: {}, ratings: {}, done: [], badges: [], offline: [], region: S.region
+        v: 5, me, trips: [],
+        visits: {}, votes: {}, done: [], badges: [], offline: [], region: S.region
       };
       V.route = null; V.idx = 0; V.fresh = []; V.ended = false; V.me = null;
       save();
@@ -2577,8 +2688,8 @@ function deleteAccount() {
     cancel: 'Скасувати',
     onPick: () => {
       S = {
-        v: 4, me: null, trips: [],
-        visits: {}, ratings: {}, done: [], badges: [], offline: [], region: null
+        v: 5, me: null, trips: [],
+        visits: {}, votes: {}, done: [], badges: [], offline: [], region: null
       };
       V.route = null; V.idx = 0; V.fresh = []; V.ended = false; V.me = null;
       V.region = null; V.cab = 'trips';
@@ -2597,7 +2708,7 @@ function checkBadges() {
   if (v.length >= 5) add('five');
   if (['olesko', 'pidhirtsi', 'zolochiv'].every(x => v.indexOf(x) > -1)) add('horseshoe');
   if (v.filter(x => P(x).t.indexOf('ruin') > -1).length >= 3) add('ruin');
-  if (Object.keys(S.ratings).length >= 5) add('critic');
+  if (votedCount() >= 5) add('critic');
   if (['potelych', 'drohobych'].every(x => v.indexOf(x) > -1)) add('unesco');
   if (S.done.length >= 1) add('route1');
   if (v.indexOf('tustan') > -1) add('rock');
@@ -2775,7 +2886,7 @@ function render() {
    безпечніше з текстом даних і легше тестувати. */
 function onTap(e) {
   const t = e.target.closest('[data-open],[data-route],[data-theme],[data-size],[data-tiles],' +
-    '[data-star],[data-media],[data-nav],[data-back],[data-act],[data-sheet],[data-tab],[data-goreg],' +
+    '[data-vote],[data-reason],[data-media],[data-nav],[data-back],[data-act],[data-sheet],[data-tab],[data-goreg],' +
     '[data-cab],[data-sigil]');
   if (!t) return;
   const d = t.dataset;
@@ -2793,7 +2904,16 @@ function onTap(e) {
   if (d.size != null) { V.size = d.size; render(); return; }
   if (d.tiles != null) { V.tiles = d.tiles; render(); return; }
   if (d.media != null) { V.media = d.media; render(); return; }
-  if (d.star != null) { V.draftStars = +d.star; render(); return; }
+  /* Вердикт і причина живуть у чернетці, поки їх не збережуть. */
+  if (d.vote != null) {
+    const was = V.vote || {};
+    V.vote = { v: +d.vote, reason: +d.vote < 0 ? (was.reason || '') : '' };
+    render(); return;
+  }
+  if (d.reason != null) {
+    V.vote = { v: (V.vote && V.vote.v) || -1, reason: d.reason };
+    render(); return;
+  }
   if (d.route != null) { openRoute(d.route); return; }
   if (d.open != null) { openPoint(d.open); return; }
   if (d.nav != null) { go(d.nav); return; }
@@ -2827,7 +2947,7 @@ function onTap(e) {
     case 'arrive-manual': arrive('manual'); break;
     case 'abort': V.road = false; go('routes'); break;
     case 'continue': continueJourney(); break;
-    case 'review': saveReview(V.sel); break;
+    case 'review': saveVote(V.sel); break;
     case 'report': report(); break;
     case 'reset': resetProgress(); break;
     case 'offline': downloadOffline(); break;
@@ -2838,6 +2958,7 @@ function onTap(e) {
       if (m) m.remove();
       break;
     }
+    case 'vote-edit': { const m = myVote(V.sel); V.vote = { v: m ? m.v : 0, reason: m ? m.reason : '' }; render(); break; }
     case 'settings': settings(); break;
     case 'me-edit': editMe(); break;
     case 'route-here': routeHere(V.sel); break;
