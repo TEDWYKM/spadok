@@ -200,6 +200,8 @@ scripts/               vendor, icons, patch-android, serve, check, e2e,
 docs/spec.md           продуктова специфікація
 docs/plan.md           етапи розвитку, ризики, метрики, гроші
 docs/server.md         проєкт серверної частини: модель, API, рейтинги
+server/schema.sql      схема бази: гейт правила 1 як зовнішній ключ
+server/test.sql        20 перевірок схеми на справжньому PostgreSQL
 docs/play.html         чеклист публікації в Google Play
 legacy/                прототипи v1 і v2, з яких усе почалося
 .github/workflows/     APK у Releases, PWA на Pages
