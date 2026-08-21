@@ -356,15 +356,19 @@ await click('[data-nav="profile"]');
 await click('[data-cab="stamps"]');
 const prof = await evaluate(`return {
   stamps: document.querySelectorAll('.stamp').length,
-  storage: document.body.innerText.includes('зберігається на цьому пристрої'),
-  freshLine: document.body.innerText.includes('Свіжих перевірок статусу')
+  storage: document.body.innerText.includes('лежить на цьому пристрої'),
+  /* Дані в наборі свіжі, тож кабінет не має про них нічого казати:
+     індикатор, який завжди зелений, — меблі, а не інформація. */
+  quiet: !document.querySelector('.alert')
 }`);
 await click('[data-cab="badges"]');
 const got = await count('.badge.got');
 prof.stamps === 3 ? ok('3 штампи відвідин') : bad('штампів: ' + prof.stamps);
 got >= 3 ? ok(got + ' нагород отримано') : bad('нагород отримано: ' + got);
-prof.storage ? ok('прогрес пишеться на пристрій') : bad('прогрес лише в пам’яті');
-prof.freshLine ? ok('видно стан свіжості перевірок статусів') : bad('немає блоку стану даних');
+prof.storage ? ok('сказано, що кабінет лежить на пристрої') : bad('немає обіцянки про дані');
+prof.quiet
+  ? ok('на свіжих даних кабінет про них мовчить')
+  : bad('кабінет попереджає про стан даних, коли попереджати нема про що');
 await shot('08-profile');
 
 /* ── 8. Збереження між запусками ─────────────────────────────────── */
@@ -1072,6 +1076,21 @@ cab.solo && /одна точка/i.test(cab.txt)
 !/lat|lon|"acc"/.test(cab.raw)
   ? ok('у журналі немає жодних координат — правило 6')
   : bad('у записі подорожі опинились координати', cab.raw.slice(0, 140));
+/* Мовчить кабінет тільки поки дані свіжі. Щойно перевірка протухає —
+   мусить сказати прямо: це вже не статистика, а те, що вплине
+   на наступну поїздку. */
+const warned = await evaluate(`
+  const p = P('univ'), was = p.upd;
+  const d = new Date(); d.setDate(d.getDate() - 130);
+  p.upd = d.toISOString().slice(0, 10);
+  render();
+  const txt = (document.querySelector('.alert') || {}).innerText || '';
+  p.upd = was; render();
+  return { txt, restored: p.upd === was };
+`);
+/випали з маршрутів/i.test(warned.txt) && warned.restored
+  ? ok('коли перевірка протухає, кабінет каже про це прямо')
+  : bad('кабінет мовчить про протухлі дані: ' + JSON.stringify(warned));
 await shot('13-cabinet');
 
 await click('[data-act="me-edit"]');
