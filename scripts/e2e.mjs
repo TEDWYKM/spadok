@@ -1237,7 +1237,7 @@ me.id
 me.stored === 'Бандура'
   ? ok('кабінет ліг на пристрій, а не лише в памʼять сторінки')
   : bad('профіль не записався в сховище: «' + me.stored + '»');
-me.v === 5 ? ok('схема даних піднялась до v5') : bad('версія схеми: ' + me.v);
+me.v === 6 ? ok('схема даних піднялась до v6') : bad('версія схеми: ' + me.v);
 await shot('13b-profile');
 
 /* ── 16. Версія і кеші ───────────────────────────────────────────────
@@ -1275,7 +1275,164 @@ cacheNames.includes('spadok-tiles-' + shipped)
   ? bad('кеш плиток названий по версії застосунку — наступний реліз зітре викачану карту')
   : ok('кеш плиток не привʼязаний до версії застосунку');
 
-/* ── 17. Налаштування ────────────────────────────────────────────────
+/* ── 17. Опис маршруту і смуга помітності ────────────────────────────
+   Опис має бути на екрані до чисел, а помітність — словом, а не балом.
+   Найдорожча помилка тут не порожній абзац, а тихе повернення числа:
+   «68» поруч зі словом читається як оцінка з тисячі відгуків, і саме
+   так вигаданий рейтинг повернувся б через задні двері. */
+/* Попередні розділи могли лишити інший регіон або фільтр довжини —
+   ставимо відомий стан, інакше «Золотої підкови» просто не буде
+   в списку, і тест провалиться не на тому, що перевіряє. */
+await evaluate('setRegion("lviv"); V.size = "all"; V.theme = "all"; render(); return 1');
+await click('[data-nav="routes"]');
+await sleep(340);
+const rpop = await count('.pop');
+rpop > 0
+  ? ok('смуга помітності стоїть на картках маршрутів — ' + rpop)
+  : bad('на списку маршрутів немає жодної смуги помітності');
+/(редакційна|не оцінки користувачів)/i.test(await text('.body') || '')
+  ? ok('на списку сказано, що помітність — не оцінки людей')
+  : bad('смуга показана без пояснення, звідки взялася');
+
+await click('[data-route="horseshoe"]');
+await sleep(420);
+const rdesc = await evaluate(`return {
+  full: (ROUTES.find(function(x){return x.id==='horseshoe'}) || {}).f || '',
+  body: document.getElementById('body').innerText
+}`);
+rdesc.full && rdesc.body.includes(rdesc.full.slice(0, 60))
+  ? ok('опис маршруту показано на його екрані')
+  : bad('опису маршруту немає на екрані');
+/* Клас .pop має text-transform:uppercase, тож innerText повертає
+   каптал — звіряємо в нижньому регістрі. */
+const bnd = await evaluate("return popBand(routePop(R('horseshoe'))).n");
+rdesc.body.toLowerCase().includes(String(bnd).toLowerCase())
+  ? ok('рівень помітності підписаний словами: «' + bnd + '»')
+  : bad('на екрані маршруту немає рівня помітності «' + bnd + '»');
+/ставить редакція/i.test(rdesc.body)
+  ? ok('на екрані маршруту сказано, хто ставить рівень')
+  : bad('рівень показаний без пояснення, звідки він');
+!/\b(4[.,]\d|\d+ оцінок|балів)\b/.test(rdesc.body)
+  ? ok('жодного бала чи кількості оцінок на екрані немає')
+  : bad('на екрані маршруту зʼявилось число, схоже на рейтинг');
+
+/* Смуга мусить розрізняти маршрути, інакше вона не інформація,
+   а прикраса: у наборі є і «на слуху», і малолюдні. */
+const bands = await evaluate(`return ROUTES.map(function(r){
+  var ids=[].concat.apply([], r.days);
+  var v=ids.reduce(function(a,id){return a+P(id).pop},0)/ids.length;
+  return popBand(v).k;
+})`);
+new Set(bands).size >= 3
+  ? ok('смуга розрізняє маршрути: рівнів у наборі ' + new Set(bands).size)
+  : bad('усі маршрути потрапили в ' + new Set(bands).size + ' рівень — смуга нічого не каже');
+
+/* ── 18. День і ніч у дорозі ─────────────────────────────────────────
+   Раніше дорожній режим завжди вмикав темну карту. Тепер підкладка
+   йде за сонцем, і найважливіше тут — що «авто» справді рахує, а не
+   вгадує: перевіряємо на реальних координатах і датах. */
+await standAt(49.9686, 24.8963);
+await sleep(400);
+await click('[data-act="start"]');
+await sleep(700);
+await click('[data-act="road-on"]');
+await sleep(700);
+(await $('[data-act="night"]'))
+  ? ok('у дорожньому режимі є перемикач підкладки')
+  : bad('перемикача день/ніч немає в дорозі');
+
+const sun = await evaluate(`return {
+  jun: sunTimes(49.84, 24.03, Date.UTC(2026, 5, 21, 10)),
+  dec: sunTimes(49.84, 24.03, Date.UTC(2026, 11, 21, 10)),
+  polar: sunTimes(78.2, 15.6, Date.UTC(2026, 5, 21, 10))
+}`);
+const hrs = t => (t.set - t.rise) / 36e5;
+sun.jun && sun.dec && hrs(sun.jun) > 15.5 && hrs(sun.jun) < 17 && hrs(sun.dec) > 7.5 && hrs(sun.dec) < 8.7
+  ? ok('сонце порахувалось у браузері: літо ' + hrs(sun.jun).toFixed(1) +
+      ' год, зима ' + hrs(sun.dec).toFixed(1) + ' год')
+  : bad('sunTimes() у браузері дав неправдоподібну довжину дня: ' + JSON.stringify(sun));
+sun.polar === null
+  ? ok('за полярним колом функція чесно каже «не рахується», а не видає NaN')
+  : bad('полярний день не розпізнано: ' + JSON.stringify(sun.polar));
+
+/* Три стани по колу, і кожен видно на карті. */
+const cyc = [];
+for (let i = 0; i < 4; i++) {
+  cyc.push(await evaluate('return {m: nightMode(), dark: darkTiles(), ' +
+    'day: document.body.classList.contains("roadday")}'));
+  await click('[data-act="night"]');
+  await sleep(420);
+}
+cyc.map(c => c.m).join() === 'auto,day,night,auto'
+  ? ok('перемикач ходить по колу авто → день → ніч')
+  : bad('порядок режимів: ' + cyc.map(c => c.m).join());
+cyc[1].dark === false && cyc[2].dark === true
+  ? ok('«день» дає світлу підкладку, «ніч» — темну')
+  : bad('ручні режими не змінюють підкладку: ' + JSON.stringify(cyc.slice(1, 3)));
+cyc[1].day === true && cyc[2].day === false
+  ? ok('удень дорожній інтерфейс світлішає разом із картою')
+  : bad('клас roadday не йде за підкладкою');
+
+/* Знімок робимо в денному режимі: саме він новий, і саме на ньому
+   видно, що разом із картою світлішає й сам інтерфейс. */
+await evaluate('S.night = "day"; save(); render(); return 1');
+await sleep(500);
+await shot('15-road-day');
+
+/* Вибір мусить пережити перезапуск: уночі за кермом не до того,
+   щоб ставити його наново після кожного відкриття. */
+await evaluate('S.night = "night"; save(); return 1');
+await goTo(BASE);
+await sleep(900);
+(await evaluate('return S.night')) === 'night'
+  ? ok('вибір підкладки пережив перезавантаження')
+  : bad('після перезапуску підкладка скинулась');
+await evaluate('S.night = "auto"; save(); return 1');
+
+/* ── 19. Про проєкт ──────────────────────────────────────────────────
+   Хто зробив, навіщо і куди йдуть гроші. Для Play цей же екран несе
+   політику приватності всередині застосунку. */
+await click('[data-nav="profile"]');
+await sleep(340);
+await click('[data-act="about"]');
+await sleep(420);
+const about = await evaluate("return document.getElementById('body').innerText");
+/ветеран/i.test(about)
+  ? ok('на екрані сказано, що проєкт створив ветеран війни')
+  : bad('рядка про автора немає на екрані');
+/популяризац/i.test(about)
+  ? ok('мета проєкту названа')
+  : bad('мети проєкту немає на екрані');
+/відновлення пам/i.test(about)
+  ? ok('сказано, що частина прибутку йде на відновлення памʼяток')
+  : bad('про частину прибутку на екрані нічого');
+['Telegram', 'Instagram', 'YouTube'].every(n => about.includes(n))
+  ? ok('усі три соцмережі показані')
+  : bad('на екрані не всі соцмережі: ' + about.slice(0, 200));
+
+/* Порожній канал не має бути посиланням: інакше застосунок веде
+   людину туди, де може стояти хто завгодно. */
+const dead = await evaluate(`return [].slice.call(document.querySelectorAll('[data-ext]'))
+  .filter(function(e){ return !e.dataset.ext.trim() }).length`);
+dead === 0
+  ? ok('жодного порожнього посилання на екрані')
+  : bad(dead + ' елементів ведуть у нікуди');
+/* .lnk i має text-transform:uppercase, тож innerText повертає каптал —
+   регістронезалежно, інакше перевірка провалюється на верстці. */
+(await count('.lnk.off')) > 0 && /ще не створено/i.test(about)
+  ? ok('канали без адреси підписані «ще не створено»')
+  : bad('канал без адреси не позначений — виглядає робочим');
+(await $('[data-ext="privacy.html"]'))
+  ? ok('політика приватності відкривається звідси')
+  : bad('політики приватності немає на екрані «про проєкт»');
+await shot('16-about');
+await click('[data-back="profile"]');
+await sleep(320);
+(await evaluate('return V.screen')) === 'profile'
+  ? ok('назад із «про проєкт» веде в кабінет')
+  : bad('кнопка «назад» веде не туди');
+
+/* ── 20. Налаштування ────────────────────────────────────────────────
    Усе, що змінює або стирає дані, зібране в одному місці. Розділ
    останній навмисно: тут дані справді стираються. */
 await click('[data-nav="profile"]');
@@ -1289,13 +1446,13 @@ await sleep(300);
 
 await click('[data-act="settings"]');
 await sleep(350);
-(await count('.sheet .opt')) === 3
-  ? ok('три пункти налаштувань')
+(await count('.sheet .opt')) === 4
+  ? ok('чотири пункти налаштувань')
   : bad('пунктів налаштувань: ' + await count('.sheet .opt'));
 
 /* Очищення прогресу лишає профіль. Інакше це було б видалення акаунта
    під іншою назвою, і одна з двох кнопок брехала б. */
-await click('[data-sheet="1"]');
+await click('[data-sheet="2"]');
 await sleep(320);
 (await $('.sheet .opt')) ? ok('підтвердження відкрилось поверх налаштувань') : bad('немає підтвердження');
 await click('[data-sheet="0"]');
@@ -1315,7 +1472,7 @@ cleared.name === 'Бандура' && cleared.id
    такий шлях був усередині застосунку, а не лише на сайті. */
 await click('[data-act="settings"]');
 await sleep(320);
-await click('[data-sheet="2"]');
+await click('[data-sheet="3"]');
 await sleep(320);
 await click('[data-sheet="0"]');
 await sleep(650);
@@ -1329,7 +1486,7 @@ const wiped = await evaluate(`return {
   : bad('після видалення лишилось: ' + JSON.stringify(wiped));
 await shot('14-settings');
 
-/* ── 18. Помилки в консолі ───────────────────────────────────────── */
+/* ── 21. Помилки в консолі ───────────────────────────────────────── */
 await sleep(300);
 errors.length === 0
   ? ok('консоль чиста')

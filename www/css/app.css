@@ -500,3 +500,73 @@ body.darkmap .mkchip b{color:#EAF2F4}
 body.darkmap .mkchip b.up{color:#3FD9B6}
 body.darkmap .mkchip b.down{color:#E9A57F}
 body.darkmap .mk.on .mkchip b{color:#3FD9B6}
+
+/* ── Смуга помітності ─────────────────────────────────────────────────
+   Навмисно не зірочки і не бали. Кольори йдуть не «добре → погано»,
+   а «людно → тихо»: найнижчий рівень зелений, як «доступно», бо
+   «майже забутий» — це запрошення, а не попередження. Мідний угорі
+   попереджає радше про черги. */
+.pop{font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.08em;
+  text-transform:uppercase;padding:3.5px 9px;border-radius:var(--r-pill);
+  border:1px solid var(--line-2);color:var(--ink-2);white-space:nowrap;
+  display:inline-flex;align-items:center;gap:6px}
+/* Крапка перед словом — щоб рівень читався ще до тексту. */
+.pop::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+.pop.top{color:var(--copper);border-color:rgba(168,84,43,.38);background:rgba(168,84,43,.07)}
+.pop.high{color:var(--gold);border-color:rgba(176,132,23,.4);background:rgba(176,132,23,.08)}
+.pop.mid{color:var(--ink-2);border-color:var(--line-2);background:rgba(21,36,46,.04)}
+.pop.low{color:var(--verd);border-color:rgba(46,125,108,.36);background:rgba(46,125,108,.06)}
+.pop.rare{color:var(--verd-dk);border-color:rgba(46,125,108,.5);background:rgba(46,125,108,.1)}
+.pop.sm{font-size:9px;padding:3px 8px}
+
+/* ── День і ніч у дорозі ──────────────────────────────────────────────
+   Кнопка живе вгорі, поруч із виходом: це керування виглядом, а не
+   ще одна дія в нижній картці, де й так пʼять елементів. */
+.roadv .rtop{gap:12px}
+.roadv .rtools{display:flex;align-items:center;gap:8px;flex:none}
+.roadv .rsun{position:relative;width:38px;height:38px;border-radius:var(--r-pill);
+  background:rgba(234,242,244,.09);display:grid;place-items:center;color:#EAF2F4}
+.roadv .rsun svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.9;
+  stroke-linecap:round;stroke-linejoin:round}
+/* Крапка = вирішує сонце, а не людина. */
+.roadv .rsun b{position:absolute;top:2px;right:2px;width:7px;height:7px;border-radius:50%;
+  background:#3FD9B6;border:1.5px solid #0B1114}
+
+/* Удень дорожній інтерфейс світлішає разом із картою: темна плашка
+   на світлій карті під сонцем — не контраст, а пляма. */
+body.roadday{background:var(--sheet)}
+body.roadday .frame{background:var(--sheet)}
+body.roadday .roadv{background:var(--sheet);color:var(--ink)}
+body.roadday .roadv .rarrow,
+body.roadday .roadv .rclose,
+body.roadday .roadv .rsun{background:rgba(21,36,46,.07);color:var(--ink)}
+body.roadday .roadv .rsun b{border-color:var(--sheet);background:var(--verd-dk)}
+body.roadday .roadv .rarrow svg{stroke:var(--ink)}
+body.roadday .roadv .rname{color:var(--ink-3)}
+body.roadday .roadv .rnext{background:var(--stone);color:var(--ink-2)}
+body.roadday .roadv .rnext b{color:var(--ink)}
+body.roadday .roadv .rwarn{background:#F3E2C2;color:#6A4A16}
+body.roadday .roadv .lmap{background:var(--stone)}
+body.roadday .leaflet-container{background:var(--stone)}
+body.roadday .leaflet-control-attribution{background:rgba(242,241,233,.78)!important;color:var(--ink-3)}
+body.roadday .leaflet-control-attribution a{color:var(--ink-2)}
+body.roadday .leaflet-bar a{background:var(--card);color:var(--ink)!important;border-color:var(--line-2)}
+
+/* ── Про проєкт ───────────────────────────────────────────────────────
+   Обіцянки й посилання. Канал без адреси показується вимкненим —
+   видно, що його ще немає, і нікуди не веде. */
+.vow{padding:11px 0;border-bottom:1px solid var(--line)}
+.vow:last-child{border-bottom:none}
+.vow b{display:block;font-size:13px;margin-bottom:4px}
+.vow p{margin:0;line-height:1.5}
+.lnks{display:flex;flex-direction:column;gap:8px}
+.lnk{display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+  padding:13px 15px;border:1px solid var(--line-2);border-radius:var(--r-lg);
+  background:var(--card)}
+.lnk b{font-size:13px;flex:none}
+.lnk span{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-3);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lnk i{margin-left:auto;flex:none;font-style:normal;font-family:"IBM Plex Mono",monospace;
+  font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.lnk i.go{font-size:14px;letter-spacing:0}
+.lnk.off{border-style:dashed;background:transparent;opacity:.68}

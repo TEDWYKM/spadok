@@ -145,6 +145,13 @@ const Store = (function () {
       });
       delete s.ratings;
     }
+    /* v5 → v6: підкладка в дорозі більше не завжди темна, і вибір
+       людини має пережити перезапуск — уночі за кермом не до того,
+       щоб щоразу перемикати наново. За замовчуванням «авто». */
+    if (s.v < 6) {
+      s.v = 6;
+      s.night = 'auto';
+    }
     return s;
   }
 })();
@@ -153,8 +160,10 @@ const Store = (function () {
    і час, тож коли зʼявиться вхід на сервер, їх можна буде
    синхронізувати, а не переписувати. */
 let S = {
-  v: 5, me: null, trips: [],
-  visits: {}, votes: {}, done: [], badges: [], offline: [], region: null
+  v: 6, me: null, trips: [],
+  visits: {}, votes: {}, done: [], badges: [], offline: [], region: null,
+  /* auto | day | night — підкладка карти в дорожньому режимі. */
+  night: 'auto'
 };
 let V = {
   screen: 'map', theme: 'all', sort: 'near', size: 'all',
@@ -660,6 +669,72 @@ const TILES = {
   }
 };
 
+/* ── День і ніч ──────────────────────────────────────────────────────
+   Дорожній режим раніше вмикав темну карту завжди. Вночі це турбота —
+   світла підкладка засвічує лобове скло; вдень це просто темна карта
+   на сонці, де й так нічого не видно. Тепер підкладка йде за сонцем,
+   і її можна перебити руками.
+
+   «Авто» рахує схід і захід із ваших координат і дати — обчислення,
+   а не здогад і не таблиця. Алгоритм NOAA у скороченому вигляді;
+   похибка в кілька хвилин тут нікого не турбує, бо питання стоїть
+   «темно надворі чи ні», а не «коли саме диск торкнеться горизонту».
+   Порогом узято сам захід (−0.833° з поправкою на рефракцію), а не
+   сутінки: це число людина може звірити з будь-яким прогнозом погоди,
+   і саме тому воно краще за точніше, але непояснюване.             */
+const NIGHT_MODES = ['auto', 'day', 'night'];
+const NIGHT_LABEL = { auto: 'авто', day: 'день', night: 'ніч' };
+
+function sunTimes(lat, lon, at) {
+  const rad = Math.PI / 180, PI = Math.PI, DAY = 864e5;
+  const J1970 = 2440588, J2000 = 2451545, J0 = 0.0009;
+  const lw = rad * -lon, phi = rad * lat;
+  const d = at / DAY - 0.5 + J1970 - J2000;
+  const n = Math.round(d - J0 - lw / (2 * PI));
+  const ds = J0 + lw / (2 * PI) + n;
+  const M = rad * (357.5291 + 0.98560028 * ds);
+  const L = M + rad * (1.9148 * Math.sin(M) + 0.02 * Math.sin(2 * M) +
+    0.0003 * Math.sin(3 * M)) + rad * 102.9372 + PI;
+  const dec = Math.asin(Math.sin(rad * 23.4397) * Math.sin(L));
+  const eq = 0.0053 * Math.sin(M) - 0.0069 * Math.sin(2 * L);
+  const noon = J2000 + ds + eq;
+  const cw = (Math.sin(rad * -0.833) - Math.sin(phi) * Math.sin(dec)) /
+    (Math.cos(phi) * Math.cos(dec));
+  /* За полярним колом сонце може не сідати або не сходити зовсім.
+     В Україні цього не буває, але формула про це не знає, і мовчазний
+     NaN був би гіршим за чесне «не рахується». */
+  if (!(cw >= -1 && cw <= 1)) return null;
+  const set = J2000 + J0 + (Math.acos(cw) + lw) / (2 * PI) + n + eq;
+  const ms = j => (j + 0.5 - J1970) * DAY;
+  return { rise: ms(noon - (set - noon)), set: ms(set) };
+}
+
+/* Звідки беремо координати для сонця: є сигнал — від вас, немає —
+   від бази області. Різниця між заходом у Львові й Києві близько
+   двадцяти хвилин, тож база цілком годиться як запасний варіант. */
+function sunHere(at) {
+  const from = Geo.pos || (isAll() ? UA_CENTER : P(reg().base));
+  return from ? sunTimes(from.lat, from.lon, at) : null;
+}
+const nightMode = () => NIGHT_MODES.indexOf(S.night) > -1 ? S.night : 'auto';
+function darkMap() {
+  const m = nightMode();
+  if (m === 'night') return true;
+  if (m === 'day') return false;
+  const s = sunHere(Date.now());
+  /* Не змогли порахувати — лишаємо темну, як було до цієї зміни. */
+  if (!s) return true;
+  const t = Date.now();
+  return t < s.rise || t >= s.set;
+}
+
+/* Одне джерело правди про те, темна зараз підкладка чи світла:
+   плитки, кольори позначок, легенда й запасна схема мусять відповісти
+   однаково, інакше на темній карті зʼявляються світлі кружальця. */
+const darkTiles = () => (V.road && V.screen === 'journey')
+  ? darkMap()
+  : V.tiles === 'dark';
+
 /* Наскільки близько тримати камеру. Пішки треба бачити двір,
    на трасі — наступний поворот за кілометр. */
 function navZoom(spd, toNext) {
@@ -698,7 +773,12 @@ async function mountMap() {
     if (e.type === 'dragstart' || !V.followAnim) setFollow(false);
   });
 
-  const t = TILES[cfg.nav ? 'dark' : V.tiles];
+  /* У дорозі стиль не з тієї самої смуги, що на інших екранах:
+     там потрібні лише два — темний уночі й світлий удень. Обидва
+     від CARTO, тобто однакової щільності підписів; підмінювати
+     денний на «Стандартну» означало б міняти ще й густоту карти
+     разом із яскравістю. */
+  const t = TILES[cfg.nav ? (darkTiles() ? 'dark' : 'light') : V.tiles];
   const layer = L.tileLayer(t.u, {
     attribution: t.a, maxZoom: 18, subdomains: t.sub || 'abc'
   }).addTo(map);
@@ -781,8 +861,7 @@ async function mountMap() {
    Під увімкненим фільтром теми колір беремо від теми: тоді на карті
    лишаються тільки її точки, і колір означає саме її.               */
 function markColor(p) {
-  const dk = V.road || V.tiles === 'dark';
-  const key = dk ? 'd' : 'l';
+  const key = darkTiles() ? 'd' : 'l';
   if (V.theme !== 'all' && THEME_COLOR[V.theme]) return THEME_COLOR[V.theme][key];
   return (KIND_COLOR[p.kind] || KIND_COLOR.city)[key];
 }
@@ -1199,9 +1278,9 @@ function fmtSpeak(m) {
 
 /* Схема на випадок, коли онлайн-карта недоступна. */
 function fallbackSVG(cfg) {
-  /* Та сама схема, але в дорожньому режимі — світлим по темному:
+  /* Та сама схема, але на темній підкладці — світлим по темному:
      інакше підписи зливаються з тлом і схема нічого не пояснює. */
-  const dk = !!cfg.nav;
+  const dk = !!cfg.nav && darkTiles();
   const ink = dk ? '#EAF2F4' : '#15242E';
   const fill = dk ? '#0B1114' : '#F2F1E9';
   const done = dk ? '#3FD9B6' : '#1C5849';
@@ -1481,6 +1560,26 @@ const routePop = r => {
   return ids.reduce((a, id) => a + P(id).pop, 0) / (ids.length || 1);
 };
 
+/* ── Помітність словами ──────────────────────────────────────────────
+   Число pop годиться, щоб сортувати, але на екрані воно бреше
+   виглядом: «68» читається як оцінка з тисячі відгуків. Тому назовні
+   виходить смуга — слово, а не бал, і поруч завжди сказано, звідки
+   воно взялося.
+
+   Тут же причина, чому це не зірочки: зірочки в застосунку вже були,
+   вигадані, і їх довелося виривати з даних (0.8.0). Повернути їх
+   через «рейтинг популярності» було б тією самою брехнею збоку. */
+const popBand = v => POP_BANDS.find(b => v >= b.min) || POP_BANDS[POP_BANDS.length - 1];
+const popTag = (v, cls) => {
+  const b = popBand(v);
+  return '<span class="pop ' + b.k + (cls ? ' ' + cls : '') + '">' + b.n + '</span>';
+};
+
+/* Один рядок, який мусить стояти скрізь, де показана смуга. Без нього
+   «на слуху» за тиждень перетвориться на голові користувача в оцінку. */
+const POP_NOTE = 'Рівень помітності ставить редакція — за тим, наскільки місце на слуху. ' +
+  'Це не оцінки користувачів: спільних оцінок у застосунку ще немає.';
+
 function routeNear(r, from) {
   return flat(r).reduce((best, id) => {
     const km = dist(from, P(id));
@@ -1519,6 +1618,7 @@ function routeCard(r, from) {
     '<p class="lede" style="margin:7px 0 9px">' + esc(r.why) + '</p>' +
     '<div class="row" style="gap:8px;flex-wrap:wrap">' +
     '<span class="tag size">' + SIZES[r.size].d + '</span>' +
+    popTag(routePop(r), 'sm') +
     '<span class="meta">' + s.stops + ' зупинок · ' + s.km + ' км</span>' +
     (fin ? '<span class="tag ok">пройдено</span>' : '') + '</div>' +
     /* Саме число «4 км до маршруту» без назви нічого не пояснює,
@@ -1605,7 +1705,7 @@ function refreshMapList() {
    вкладка підсвічена. Раніше оновлювався тільки список, і шторка
    показувала «Маршрути · 9» над списком знайдених місць. */
 function mapHead(m) {
-  const dk = (V.road || V.tiles === 'dark') ? 'd' : 'l';
+  const dk = darkTiles() ? 'd' : 'l';
   /* Легенда: колір без підпису — значення, доступне тільки тим, хто
      його бачить. Під фільтром теми вона стискається в один рядок,
      бо кольори там уже не про типи. */
@@ -1672,14 +1772,19 @@ function scrRoutes() {
     '<button class="chip" aria-pressed="' + (V.size === 'all') + '" data-size="all">Усі</button>' +
     Object.keys(SIZES).map(k => '<button class="chip" aria-pressed="' + (V.size === k) +
       '" data-size="' + k + '">' + SIZES[k].n + ' · ' + SIZES[k].d + '</button>').join('') + '</div>' +
-    '<p class="lede" style="margin:12px 0 14px">Маршрути будуються від Львова. Багатоденні розбиті ' +
-    'на дні з поверненням до бази щовечора.</p>' +
+    /* Раніше тут стояло «будуються від Львова» — правда рівно доти,
+       доки область була одна. Тепер база у кожної своя, і називати
+       чужу було б дрібною, але щоденною брехнею. */
+    '<p class="lede" style="margin:12px 0 6px">Маршрути будуються від бази області. ' +
+    'Багатоденні розбиті на дні з поверненням до неї щовечора.</p>' +
+    '<p class="meta" style="margin:0 0 14px;line-height:1.45">' + POP_NOTE + '</p>' +
     (list.map(r => {
       const s = routeStats(r), fin = S.done.indexOf(r.id) > -1;
       return '<div class="card" data-route="' + r.id + '">' +
         '<div class="between"><h3>' + esc(r.n) + '</h3><span class="tag size">' + SIZES[r.size].d + '</span></div>' +
         '<p class="lede" style="margin:7px 0 10px">' + esc(r.why) + '</p>' +
-        '<div class="row" style="gap:13px;flex-wrap:wrap">' +
+        '<div class="row" style="gap:10px;flex-wrap:wrap">' +
+        popTag(routePop(r), 'sm') +
         '<span class="meta">' + s.stops + ' точок</span>' +
         '<span class="meta">' + s.km + ' км</span>' +
         '<span class="meta">' + hhmm(s.min) + '</span>' +
@@ -1701,7 +1806,20 @@ function scrRoute() {
   };
   const off = S.offline.indexOf(r.id) > -1;
 
+  const band = popBand(routePop(r));
+
   return '<div><div id="lmap" class="lmap tall"></div>' + mapBar() +
+    /* Опис маршруту стоїть одразу під картою, до чисел: спершу треба
+       зрозуміти, про що ця поїздка, а вже потім — скільки в ній
+       кілометрів. Кілометри без задуму нічого не вирішують. */
+    '<div class="card" style="margin-top:12px">' +
+    '<div class="between"><span class="eyebrow">Про маршрут</span>' +
+    popTag(routePop(r)) + '</div>' +
+    '<p class="lede" style="margin:9px 0 0">' + esc(r.f) + '</p>' +
+    /* Назву рівня не повторюємо — вона щойно стояла ярликом поруч.
+       Розшифровка починається з того, чого ярлик не вміщує. */
+    '<p class="meta" style="margin:10px 0 0;line-height:1.45">' +
+    esc(band.d.charAt(0).toUpperCase() + band.d.slice(1)) + '. ' + POP_NOTE + '</p></div>' +
     (s.blocked.length ? '<div class="alert" style="margin-top:12px"><b>Обійдено ' +
       s.blocked.length + ' ' + plural(s.blocked.length, 'точку', 'точки', 'точок') +
       '.</b><br>Трек прокладено без них: ' + blockedWhy(s.blocked) + '.</div>' : '') +
@@ -1802,8 +1920,9 @@ function roadView(r, st, cur, d, chain) {
        (їх ще рахує OSRM або немає звʼязку), у верхньому лишається
        назва точки — краще, ніж порожньо. */
     '<span class="rname" id="rturn">' + esc(cur.n) + '</span></span>' +
+    '<span class="rtools">' + nightBtn() +
     '<button class="rclose" data-act="road-off" aria-label="Вийти з дорожнього режиму">' +
-    '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>' +
+    '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></span></div>' +
     '<div class="rnext' + (Geo.state === 'live' ? '' : ' rwarn') + '" id="rnext">' +
     (Geo.state === 'live'
       ? (next ? 'далі <b>' + esc(next.n) + '</b>'
@@ -1827,6 +1946,46 @@ function roadView(r, st, cur, d, chain) {
     '<svg viewBox="0 0 24 24"><path d="M12 2l9 20-9-5-9 5z"/></svg></button>' +
     '<button class="rbtn" data-act="overview">Огляд</button></div></div>';
 }
+/* Кнопка підкладки. Значок показує те, що зараз на карті, — сонце
+   або місяць; крапка в куті означає, що вирішує не людина, а сонце.
+   Слово «авто / день / ніч» на 38 пікселях не поміститься, тому режим
+   договорює toast після натискання: за кермом значок читається
+   швидше за напис, але підтвердження словами все одно потрібне. */
+function nightBtn() {
+  const m = nightMode(), dark = darkTiles();
+  const icon = dark
+    ? '<path d="M20 14.6A8.6 8.6 0 019.4 4 8.6 8.6 0 1020 14.6z"/>'
+    : '<circle cx="12" cy="12" r="4.1"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2' +
+      'M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/>';
+  return '<button class="rsun" data-act="night" aria-label="Підкладка карти: ' +
+    NIGHT_LABEL[m] + '. Перемкнути" title="Підкладка: ' + NIGHT_LABEL[m] + '">' +
+    '<svg viewBox="0 0 24 24">' + icon + '</svg>' +
+    (m === 'auto' ? '<b></b>' : '') + '</button>';
+}
+
+const hm = t => {
+  const d = new Date(t), p = n => (n < 10 ? '0' : '') + n;
+  return p(d.getHours()) + ':' + p(d.getMinutes());
+};
+
+function cycleNight() {
+  S.night = NIGHT_MODES[(NIGHT_MODES.indexOf(nightMode()) + 1) % NIGHT_MODES.length];
+  save();
+  render();
+  const m = nightMode();
+  if (m !== 'auto') {
+    toast(m === 'day' ? 'Світла карта' : 'Темна карта',
+      'Так і лишиться, доки не повернете «авто».');
+    return;
+  }
+  /* В «авто» показуємо самі числа: людина має бачити, що за цим
+     стоїть розрахунок для її місця, а не якесь «вечоріє». */
+  const s = sunHere(Date.now());
+  toast('Карта за сонцем', s
+    ? 'Сьогодні тут темніє о ' + hm(s.set) + ', світлішає о ' + hm(s.rise) + '.'
+    : 'Схід і захід для цього місця не рахуються — лишається темна.');
+}
+
 /* ── Карткова подорож: те саме, але для читання, а не для керма ── */
 function cardView(r, st, cur, d, origin) {
   const km = Math.round(dist(origin, cur));
@@ -2112,7 +2271,77 @@ function scrProfile() {
        це перше, що треба спитати. Це ж число і в назві кешу оболонки. */
     '<p class="meta" style="text-align:center;margin:14px 0 0;line-height:1.6">Кабінет ' +
     (Store.kind === 'local' ? 'лежить на цьому пристрої' : 'живе лише в памʼяті сесії') +
-    ' і нікуди не передається<br>Спадок · версія ' + APP_VERSION + '</p></div>';
+    ' і нікуди не передається<br>Спадок · версія ' + APP_VERSION + '</p>' +
+    /* Другі двері до «Про проєкт». Перші — в налаштуваннях, але
+       туди заходять, коли щось хочуть стерти, а не коли хочуть
+       дізнатися, хто це зробив. */
+    '<button class="btn-sm" style="display:block;margin:12px auto 0" data-act="about">' +
+    'Про проєкт</button></div>';
+}
+
+/* ═════════ ПРО ПРОЄКТ ═════════
+   Екран, який пояснює, хто це зробив і навіщо. Він же — обовʼязковий
+   для стору вузол: політика приватності мусить відкриватися зсередини
+   застосунку, а не лише лежати на сайті.
+
+   Соцмережі показуються навіть тоді, коли адреси ще немає, — але
+   рядком «канал ще не створено», а не мертвим посиланням. Вигадати
+   адресу тут було б найлегше і найгірше: @spadok може належати
+   комусь іншому, і застосунок відправив би туди людину від нашого
+   імені.                                                            */
+function scrAbout() {
+  const soc = Object.keys(LINKS).map(k => {
+    const l = LINKS[k];
+    return l.url
+      ? '<button class="lnk" data-ext="' + esc(l.url) + '">' +
+        '<b>' + esc(l.n) + '</b><span>' + esc(l.d) + '</span>' +
+        '<i class="go">↗</i></button>'
+      : '<div class="lnk off"><b>' + esc(l.n) + '</b><span>' + esc(l.d) + '</span>' +
+        '<i>ще не створено</i></div>';
+  }).join('');
+
+  return '<div>' +
+    '<p class="lede">' + esc(ABOUT.lead) + '</p>' +
+
+    '<div class="card" style="margin-top:14px">' +
+    '<span class="eyebrow">Хто робить</span>' +
+    '<p class="lede" style="margin:9px 0 0">' + esc(ABOUT.who) + '</p></div>' +
+
+    '<div class="card" style="margin-top:10px">' +
+    '<span class="eyebrow">Навіщо</span>' +
+    '<p class="lede" style="margin:9px 0 0">' + esc(ABOUT.why) + '</p></div>' +
+
+    '<div class="card" style="margin-top:10px">' +
+    '<span class="eyebrow">Куди йдуть гроші</span>' +
+    '<p class="lede" style="margin:9px 0 0">' + esc(ABOUT.give) + '</p>' +
+    /* Конкретика зʼявляється тут тільки тоді, коли її справді
+       вирішили. Порожній GIVING — і рядка немає: краще загальна
+       обіцянка, ніж відсоток, узятий для гарного вигляду. */
+    (GIVING.share && GIVING.to
+      ? '<p class="meta" style="margin:8px 0 0;line-height:1.45">' +
+        esc(GIVING.share) + ' — ' + esc(GIVING.to) + '</p>'
+      : '') + '</div>' +
+
+    '<div class="rule"></div><span class="eyebrow">Правила, за якими це зроблено</span>' +
+    '<div style="margin-top:10px">' + ABOUT.vows.map(v =>
+      '<div class="vow"><b>' + esc(v[0]) + '</b><p class="meta">' + esc(v[1]) + '</p></div>'
+    ).join('') + '</div>' +
+
+    '<div class="rule"></div><span class="eyebrow">Соцмережі</span>' +
+    '<div class="lnks" style="margin-top:10px">' + soc + '</div>' +
+
+    '<div class="rule"></div>' +
+    '<button class="btn ghost" data-ext="privacy.html">Політика приватності</button>' +
+    '<p class="meta" style="text-align:center;margin:14px 0 0;line-height:1.6">' +
+    'Спадок · версія ' + APP_VERSION + '<br>Карта — OpenStreetMap і CARTO, ' +
+    'маршрути по дорогах — OSRM</p></div>';
+}
+
+/* Зовнішнє посилання відкриваємо системним браузером: усередині
+   WebView людина втратила б і адресний рядок, і кнопку «назад». */
+function openExt(url) {
+  try { window.open(url, '_blank', 'noopener'); }
+  catch (e) { toast('Не вдалося відкрити посилання', url); }
 }
 
 /* ── Історія подорожей ─────────────────────────────────────────────── */
@@ -2649,9 +2878,10 @@ function report() {
 function settings() {
   sheet({
     title: 'Налаштування',
-    text: 'Кабінет лежить на цьому пристрої, тому все нижче діє тут і тільки тут.',
+    text: 'Кабінет лежить на цьому пристрої, тому все, що змінює дані, діє тут і тільки тут.',
     options: [
       { label: 'Змінити профіль', hint: 'імʼя та знак мандрівника' },
+      { label: 'Про проєкт', hint: 'хто робить, навіщо, соцмережі, приватність' },
       { label: 'Очистити прогрес', hint: 'штампи, оцінки, історія, нагороди — профіль лишиться' },
       { label: 'Видалити акаунт', hint: 'усе разом із профілем' }
     ],
@@ -2659,7 +2889,8 @@ function settings() {
     onPick(_, i) {
       closeSheet();
       if (i === 0) editMe();
-      else if (i === 1) resetProgress();
+      else if (i === 1) go('about');
+      else if (i === 2) resetProgress();
       else deleteAccount();
     }
   });
@@ -2678,8 +2909,12 @@ function resetProgress() {
     onPick: () => {
       const me = S.me;
       S = {
-        v: 5, me, trips: [],
-        visits: {}, votes: {}, done: [], badges: [], offline: [], region: S.region
+        v: 6, me, trips: [],
+        visits: {}, votes: {}, done: [], badges: [], offline: [], region: S.region,
+        /* Підкладка — не прогрес, а налаштування зручності: людина
+           обирала її для дороги, а не заробила. Стирати її разом зі
+           штампами означало б покарати за очищення історії. */
+        night: S.night
       };
       V.route = null; V.idx = 0; V.fresh = []; V.ended = false; V.me = null;
       save();
@@ -2708,8 +2943,9 @@ function deleteAccount() {
     cancel: 'Скасувати',
     onPick: () => {
       S = {
-        v: 5, me: null, trips: [],
-        visits: {}, votes: {}, done: [], badges: [], offline: [], region: null
+        v: 6, me: null, trips: [],
+        visits: {}, votes: {}, done: [], badges: [], offline: [], region: null,
+        night: 'auto'
       };
       V.route = null; V.idx = 0; V.fresh = []; V.ended = false; V.me = null;
       V.region = null; V.cab = 'trips';
@@ -2825,7 +3061,8 @@ const TITLES = {
   journey: ['У дорозі', ''],
   point: ['Пам’ятка', ''],
   finish: ['Подорож завершено', ''],
-  profile: ['Мандрівний лист', '']
+  profile: ['Мандрівний лист', ''],
+  about: ['Про проєкт', '']
 };
 
 const NAV = [
@@ -2840,7 +3077,7 @@ function render() {
   const back = {
     route: 'routes', journey: 'route',
     point: V.from === 'journey' ? 'journey' : V.from === 'profile' ? 'profile' : 'map',
-    finish: null
+    finish: null, about: 'profile'
   }[V.screen];
 
   /* Пошук живе на головному екрані: шукають те, що на карті.
@@ -2878,14 +3115,17 @@ function render() {
   document.body.classList.toggle('mapv', V.screen === 'map');
   /* Позначки й бульбашки скупчень мусять знати, темна під ними
      підкладка чи світла, — незалежно від того, звідки вона темна. */
-  document.body.classList.toggle('darkmap',
-    V.tiles === 'dark' || (!!V.road && V.screen === 'journey'));
+  document.body.classList.toggle('darkmap', darkTiles());
+  /* Дорожній інтерфейс удень світлішає разом із картою: темна плашка
+     на 33 пікселі поверх світлої карти на сонці — не контраст, а пляма. */
+  document.body.classList.toggle('roadday',
+    !!V.road && V.screen === 'journey' && !darkTiles());
 
   if (LMAP) { try { LMAP.remove(); } catch (e) {} LMAP = null; MEMARK = null; MEACC = null; }
 
   const screens = {
     map: scrMap, routes: scrRoutes, route: scrRoute, journey: scrJourney,
-    point: scrPoint, finish: scrFinish, profile: scrProfile
+    point: scrPoint, finish: scrFinish, profile: scrProfile, about: scrAbout
   };
   document.getElementById('body').innerHTML = (screens[V.screen] || scrMap)();
 
@@ -2907,9 +3147,11 @@ function render() {
 function onTap(e) {
   const t = e.target.closest('[data-open],[data-route],[data-theme],[data-size],[data-tiles],' +
     '[data-vote],[data-reason],[data-media],[data-nav],[data-back],[data-act],[data-sheet],[data-tab],[data-goreg],' +
-    '[data-cab],[data-sigil]');
+    '[data-cab],[data-sigil],[data-ext]');
   if (!t) return;
   const d = t.dataset;
+
+  if (d.ext != null) { openExt(d.ext); return; }
 
   if (d.sheet != null && V.sheet) { V.sheet.onPick(V.sheet.options[+d.sheet], +d.sheet); return; }
   if (d.act === 'scrim') { if (e.target === t) closeSheet(); return; }
@@ -2954,6 +3196,7 @@ function onTap(e) {
     case 'start': startJourney(); break;
     case 'road-on': roadMode(true); break;
     case 'road-off': roadMode(false); break;
+    case 'night': cycleNight(); break;
     case 'follow': setFollow(!V.follow); followMe(); break;
     case 'voice':
       Voice.on = !Voice.on;
@@ -2980,6 +3223,7 @@ function onTap(e) {
     }
     case 'vote-edit': { const m = myVote(V.sel); V.vote = { v: m ? m.v : 0, reason: m ? m.reason : '' }; render(); break; }
     case 'settings': settings(); break;
+    case 'about': go('about'); break;
     case 'me-edit': editMe(); break;
     case 'route-here': routeHere(V.sel); break;
     case 'to-journey': go('journey'); break;
