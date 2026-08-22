@@ -570,3 +570,16 @@ body.roadday .leaflet-bar a{background:var(--card);color:var(--ink)!important;bo
   font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
 .lnk i.go{font-size:14px;letter-spacing:0}
 .lnk.off{border-style:dashed;background:transparent;opacity:.68}
+
+/* ── Прокрутка всередині шторки ───────────────────────────────────────
+   Шторка перестала просто рости вниз: заголовок і кнопка закриття
+   тримаються на місці, а список їздить між ними. Без цього довгий
+   перелік виносив кнопку закриття за край екрана — і шторка ставала
+   пасткою, з якої видно вихід тільки жестом назад. */
+.sheet{display:flex;flex-direction:column;max-height:86dvh}
+.sopts{flex:0 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  /* Щоб карта під шторкою не їхала разом зі списком: людина губить
+     те, що вибирала, і не розуміє, звідки взявся інший вигляд. */
+  overscroll-behavior:contain;
+  /* Місце під тінь і рамку кнопок, які інакше зрізало б краєм. */
+  margin:0 -2px;padding:0 2px 2px}

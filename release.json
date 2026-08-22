@@ -1,13 +1,13 @@
 {
   "_": "Пише scripts/release.mjs, звіряє scripts/check.mjs. Руками не правити.",
   "version": "0.11.0",
-  "digest": "7ef8ed24cb9a194f",
+  "digest": "2e447c4dc7bf6986",
   "files": {
     "www/index.html": "5f46c127ecf6bddc",
     "www/manifest.webmanifest": "13dde84713ae535c",
-    "www/css/app.css": "897d308257fe887b",
+    "www/css/app.css": "22d524f28d9f567f",
     "www/js/data.js": "ca134640045da009",
-    "www/js/app.js": "bf57b0699d7332db",
+    "www/js/app.js": "9640655854f8c4ba",
     "www/sw.js": "f877c81bacaebaeb",
     "www/icons/icon-192.png": "4430e4180e662050",
     "www/icons/icon-512.png": "9f996a2fddbcb8e0",

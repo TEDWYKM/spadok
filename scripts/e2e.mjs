@@ -941,19 +941,83 @@ await click('[data-act="region"]');
 await sleep(320);
 const picker = await evaluate(`return {
   opts: [...document.querySelectorAll('.sheet .opt b')].map(b => b.innerText),
-  hints: [...document.querySelectorAll('.sheet .opt span')].map(b => b.innerText)
+  hints: [...document.querySelectorAll('.sheet .opt span')].map(b => b.innerText),
+  note: (document.querySelector('.sopts .meta') || {}).innerText || ''
 }`);
 picker.opts[0] === 'Уся Україна'
   ? ok('«Уся Україна» першим пунктом у виборі')
   : bad('немає режиму всієї країни: ' + JSON.stringify(picker.opts));
-picker.opts.length === 16
-  ? ok('плюс усі 15 регіонів, разом ' + picker.opts.length)
-  : bad('пунктів у виборі: ' + picker.opts.length);
-/* Порожні регіони не ховаються: інакше список удавав би, що країна
-   складається з двох регіонів, і людина не побачила б, куди йде проєкт. */
-picker.hints.filter(h => /поки порожньо/i.test(h)).length === 13
-  ? ok('13 порожніх регіонів показані з нулем, а не сховані')
-  : bad('порожніх у списку: ' + picker.hints.filter(h => /поки порожньо/i.test(h)).length);
+picker.opts.length === 3
+  ? ok('плюс наповнені регіони, разом ' + picker.opts.length)
+  : bad('пунктів у виборі: ' + picker.opts.length + ' — ' + JSON.stringify(picker.opts));
+/* Порожні регіони прибрані зі списку: тринадцять пунктів, кожен із
+   яких відкриває порожню карту, робили найчастішу дію найдорожчою. */
+!picker.hints.some(h => /поки порожньо/i.test(h))
+  ? ok('порожні регіони не займають місце у виборі')
+  : bad('у списку лишились порожні регіони');
+/* Але зникнути без сліду вони не мають права. */
+/13 регіонів/.test(picker.note) && /чекають на контент/.test(picker.note)
+  ? ok('під списком сказано, скільки регіонів іще чекає на контент')
+  : bad('сховані регіони ніде не згадані: ' + JSON.stringify(picker.note));
+
+/* Довгий список не має виносити кнопку закриття за межі екрана. */
+const scroll = await evaluate(`
+  const sh = document.querySelector('.sheet');
+  const list = document.querySelector('.sopts');
+  const close = document.querySelector('[data-act="sheet-close"]');
+  if (!sh || !list || !close) return null;
+  const before = list.scrollTop;
+  list.scrollTop = 9999;
+  const moved = list.scrollTop !== before || list.scrollHeight <= list.clientHeight + 1;
+  list.scrollTop = before;
+  return {
+    fits: Math.round(sh.getBoundingClientRect().bottom) <= window.innerHeight + 1,
+    closeVisible: close.getBoundingClientRect().bottom <= window.innerHeight + 1,
+    scrollable: getComputedStyle(list).overflowY === 'auto',
+    contained: getComputedStyle(list).overscrollBehaviorY === 'contain',
+    moved
+  };
+`);
+scroll && scroll.fits && scroll.closeVisible
+  ? ok('шторка тримається в межах екрана разом із кнопкою закриття')
+  : bad('шторка вилізла за екран: ' + JSON.stringify(scroll));
+scroll && scroll.scrollable && scroll.contained
+  ? ok('список у шторці прокручується й не тягне за собою карту')
+  : bad('прокрутка списку не налаштована: ' + JSON.stringify(scroll));
+
+/* Той самий механізм на штучно довгому списку: сорок пунктів мусять
+   прокручуватись, а не виштовхувати кнопку закриття вниз. */
+await evaluate(`
+  const long = [];
+  for (let i = 0; i < 40; i++) long.push({ label: 'Пункт ' + (i + 1), hint: 'перевірка прокрутки' });
+  sheet({ title: 'Довгий список', text: 'Перевірка', options: long, onPick(){} });
+  return null;
+`);
+await sleep(320);
+const longSheet = await evaluate(`
+  const sh = document.querySelector('.sheet');
+  const list = document.querySelector('.sopts');
+  const close = document.querySelector('[data-act="sheet-close"]');
+  list.scrollTop = 99999;
+  return {
+    opts: document.querySelectorAll('.sheet .opt').length,
+    overflows: list.scrollHeight > list.clientHeight + 4,
+    scrolled: list.scrollTop > 0,
+    closeVisible: close.getBoundingClientRect().bottom <= window.innerHeight + 1,
+    title: !!document.querySelector('.sheet h3')
+  };
+`);
+longSheet.opts === 40 && longSheet.overflows && longSheet.scrolled
+  ? ok('сорок пунктів справді прокручуються всередині шторки')
+  : bad('довгий список не прокрутився: ' + JSON.stringify(longSheet));
+longSheet.closeVisible && longSheet.title
+  ? ok('прокрутка не забрала ні заголовок, ні кнопку закриття')
+  : bad('шторка з довгим списком стала пасткою: ' + JSON.stringify(longSheet));
+await shot('11c-sheet-scroll');
+await click('[data-act="sheet-close"]');
+await sleep(280);
+await click('[data-act="region"]');
+await sleep(320);
 /^24 точки/.test(picker.hints[0])
   ? ok('підпис каже, скільки точок у режимі всієї країни')
   : bad('підпис режиму: ' + picker.hints[0]);
